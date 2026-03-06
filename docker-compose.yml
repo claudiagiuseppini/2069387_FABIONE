@@ -14,11 +14,12 @@ services:
     ports:
       - "61616:61616" # Porta per il protocollo CORE/OpenWire
       - "1883:1883"   # Porta per il protocollo MQTT (fondamentale per i sensori)
+      - "61613:61613"
       - "8161:8161"   # Console Web (Dashboard di controllo)
     environment:
       - ARTEMIS_USER=admin
       - ARTEMIS_PASSWORD=admin_password
-      - ANONYMOUS_LOGIN=true 
+      - ANONYMOUS_LOGIN=true
     networks:
       - iot-network
 
@@ -30,6 +31,14 @@ services:
       - simulator
     environment:
       - PYTHONUNBUFFERED=1 
+
+  processing:
+    build: ./processing
+    container_name: processing_service
+    depends_on:
+      - broker
+    networks:
+      - iot-network
 
   db:
     image: mariadb:latest

@@ -1,5 +1,5 @@
 fastapi>=0.109.0
 uvicorn>=0.27.0
 requests==2.31.0
-paho-mqtt>=1.6.1
+stomp.py
 sseclient-py
