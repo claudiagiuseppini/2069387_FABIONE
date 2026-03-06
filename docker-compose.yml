@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  simulator:
+    image: mars-iot-simulator:multiarch_v1
+    ports:
+      - "8080:8080"
+    networks:
+      - iot-network
+    restart: always
+
+  ingestion-service:
+    build: ./ingestion
+    networks:
+      - iot-network 
+    depends_on:
+      - simulator
+    environment:
+      - PYTHONUNBUFFERED=1 
+
+  db:
+    image: mariadb:latest
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_password
+      MYSQL_DATABASE: mars_iot
+      MYSQL_USER: user_mars
+      MYSQL_PASSWORD: password_mars
+    volumes:
+      # Script di inizializzazione
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      # Cartella fisica per i dati 
+      - ./db/data:/var/lib/mysql
+    networks:
+      - iot-network
+
+networks:
+  iot-network:
+    driver: bridge
