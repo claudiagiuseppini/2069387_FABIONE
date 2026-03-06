@@ -15,16 +15,17 @@ BROKER_USER = "admin"
 BROKER_PASS = "admin_password"
 
 # Inizializzazione Client STOMP
-stomp_conn = stomp.Connection([(BROKER_HOST, BROKER_PORT)])
+stomp_conn_poll = stomp.Connection([(BROKER_HOST, BROKER_PORT)])
+stomp_conn_telemetry = stomp.Connection([(BROKER_HOST, BROKER_PORT)])
 
-def connect_stomp():
-    """Gestisce la connessione al broker STOMP."""
+def connect_stomp_generic(conn, label):
+    """Gestisce la connessione per un client specifico."""
     try:
-        if not stomp_conn.is_connected():
-            stomp_conn.connect(BROKER_USER, BROKER_PASS, wait=True)
-            print("✅ Connesso al Broker via STOMP", flush=True)
+        if not conn.is_connected():
+            conn.connect(BROKER_USER, BROKER_PASS, wait=True)
+            print(f"✅ Connesso al Broker via STOMP ({label})", flush=True)
     except Exception as e:
-        print(f"❌ Errore connessione STOMP: {e}", flush=True)
+        print(f"❌ Errore connessione STOMP ({label}): {e}", flush=True)
 
 # --- FUNZIONI DI SUPPORTO (Invariate) ---
 
@@ -66,27 +67,22 @@ def get_sensors_list():
 
 def poll_sensors():
     active_sensors = get_sensors_list()
-    print(f"Polling SENSORI avviato su: {active_sensors}", flush=True)
-    
     while True:
-        connect_stomp() # Assicura che la connessione sia attiva
+        connect_stomp_generic(stomp_conn_poll, "POLLING") # Usa connessione poll
         for sensor in active_sensors:
             try:
                 response = requests.get(f"{SIMULATOR_URL}/api/sensors/{sensor}", timeout=5)
                 if response.status_code == 200:
-                    raw_data = response.json()
-                    metrics = normalize_to_metrics(sensor, raw_data)
+                    metrics = normalize_to_metrics(sensor, response.json())
                     for metric in metrics:
-                        # Formato topic STOMP/Artemis: /topic/nome.sottocategoria
                         topic = f"/topic/mars.metrics.{metric['sensor_id']}.{metric['metric_name']}"
-                        
-                        stomp_conn.send(body=json.dumps(metric), destination=topic)
-                        print(f"[POLL] {topic} -> {metric['value']} {metric['unit']}", flush=True)
+                        # Invia tramite connessione poll
+                        stomp_conn_poll.send(body=json.dumps(metric), destination=topic)
+                        print(f"[POLL] {topic} -> {metric['value']}", flush=True)
                 else:
                     print(f"Errore simulatore su {sensor}: {response.status_code}", flush=True)
             except Exception as e:
-                print(f"Errore durante il processing di {sensor}: {e}", flush=True)
-        
+                print(f"Errore polling {sensor}: {e}", flush=True)
         time.sleep(5)
 
 # --- THREAD 2: STREAMING TELEMETRIE ---
@@ -103,25 +99,25 @@ def get_telemetry_list():
 def stream_telemetry(topic_id):
     stream_url = f"{SIMULATOR_URL}/api/telemetry/stream/{topic_id}" 
     print(f"Streaming TELEMETRIE (SSE) avviato su: {stream_url}", flush=True)
-    
     while True:
         try:
-            connect_stomp()
+            connect_stomp_generic(stomp_conn_telemetry, "TELEMETRY") # Usa connessione telemetria
             response = requests.get(stream_url, stream=True, timeout=None)
             client = sseclient.SSEClient(response)
             
+
             for event in client.events():
                 if event.data:
                     raw_data = json.loads(event.data)
+
+                    print(raw_data)
                     item_id = raw_data.get("id") or raw_data.get("sensor_id", "telemetry_unknown")
-                    
                     metrics = normalize_to_metrics(item_id, raw_data)
                     for metric in metrics:
-                        # Prefisso STOMP differente
                         topic = f"/topic/mars.telemetry.{metric['sensor_id']}.{metric['metric_name']}"
-                        stomp_conn.send(body=json.dumps(metric), destination=topic)
+                        # Invia tramite connessione telemetria
+                        stomp_conn_telemetry.send(body=json.dumps(metric), destination=topic)
                         print(f"[STREAM] {topic} -> {metric['value']}", flush=True)
-                        
         except Exception as e:
             print(f"Connessione SSE persa ({e}). Riconnessione in corso...", flush=True)
             time.sleep(5)
@@ -131,13 +127,15 @@ def cycle_telemetry():
     for topic in topic_list:
         t_topic = threading.Thread(target=stream_telemetry, args=(topic,), daemon=True)
         t_topic.start()
+        time.sleep(2.0)
     
 # --- FASTAPI SETUP ---
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inizializza la connessione
-    connect_stomp()
+    # Connettiamo inizialmente entrambi
+    connect_stomp_generic(stomp_conn_poll, "POLLING")
+    connect_stomp_generic(stomp_conn_telemetry, "TELEMETRY")
 
     t_sensors = threading.Thread(target=poll_sensors, daemon=True)
     t_telemetry = threading.Thread(target=cycle_telemetry, daemon=True)
@@ -146,9 +144,12 @@ async def lifespan(app: FastAPI):
     t_telemetry.start()
     
     yield
-    # Cleanup
-    if stomp_conn.is_connected():
-        stomp_conn.disconnect()
+    
+    # Cleanup di entrambe
+    if stomp_conn_poll.is_connected():
+        stomp_conn_poll.disconnect()
+    if stomp_conn_telemetry.is_connected():
+        stomp_conn_telemetry.disconnect()
 
 app = FastAPI(lifespan=lifespan)
 
