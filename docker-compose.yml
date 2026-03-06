@@ -9,6 +9,19 @@ services:
       - iot-network
     restart: always
 
+  broker:
+    image: apache/activemq-artemis:latest-alpine
+    ports:
+      - "61616:61616" # Porta per il protocollo CORE/OpenWire
+      - "1883:1883"   # Porta per il protocollo MQTT (fondamentale per i sensori)
+      - "8161:8161"   # Console Web (Dashboard di controllo)
+    environment:
+      - ARTEMIS_USER=admin
+      - ARTEMIS_PASSWORD=admin_password
+      - ANONYMOUS_LOGIN=true 
+    networks:
+      - iot-network
+
   ingestion-service:
     build: ./ingestion
     networks:
