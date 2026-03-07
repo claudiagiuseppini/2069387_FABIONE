@@ -161,16 +161,20 @@ async function apiFetch(url, options = {}) {
 ========================= */
 
 function updateOverview() {
-  dom.activeSensorsCount.textContent = appState.latestSensors.length;
-  dom.sensorCardsBadge.textContent = `${appState.latestSensors.length} items`;
 
-  // Conteggio telemetrie "live" approssimato:
+  const uniqueSensorIds = new Set(appState.latestSensors.map(s => s.sensor_id));
+  dom.activeSensorsCount.textContent = uniqueSensorIds.size;
+
+  dom.sensorCardsBadge.textContent = `${appState.latestSensors.length} metrics`;
+  
   const telemetryCount = appState.latestSensors.filter(
     item => String(item.sensor_type || "").toLowerCase().includes("tele")
   ).length;
   dom.liveTelemetryCount.textContent = telemetryCount;
 
-  const enabledRules = appState.rules.filter(rule => rule.enabled === true || rule.enabled === 1).length;
+  const enabledRules = appState.rules.filter(
+    rule => rule.enabled === true || rule.enabled === 1
+  ).length;
   dom.activeRulesCount.textContent = enabledRules;
 
   const actuatorsOn = Object.values(appState.actuators).filter(
@@ -199,9 +203,9 @@ function renderSensorCards() {
   }
 
   const html = appState.latestSensors.map(sensor => {
-    const metric = sensor.metric || {};
-    const value = safeText(metric.value);
-    const unit = safeText(metric.unit, "");
+    const value = safeText(sensor.value);
+    const unit = safeText(sensor.unit, "");
+    const metricName = safeText(sensor.metric_name);
     const status = safeText(sensor.status, "unknown");
     const source = safeText(sensor.source, "n/a");
     const timestamp = safeText(sensor.timestamp, "--");
@@ -211,7 +215,7 @@ function renderSensorCards() {
         <div class="sensor-card">
           <div class="sensor-title">${safeText(sensor.sensor_id)}</div>
           <div class="sensor-subtitle">
-            ${safeText(metric.name)} · ${safeText(sensor.sensor_type)}
+            ${metricName} · ${safeText(sensor.sensor_type)}
           </div>
 
           <div class="d-flex align-items-end gap-1 mb-2">
@@ -238,9 +242,8 @@ function renderSensorCards() {
 
 function populateChartSelect(sensors) {
   const options = sensors.map(sensor => {
-    const metric = sensor.metric || {};
-    const value = `${sensor.sensor_id}|${metric.name}`;
-    const label = `${sensor.sensor_id} - ${metric.name}`;
+    const value = `${sensor.sensor_id}|${sensor.metric_name}`;
+    const label = `${sensor.sensor_id} - ${sensor.metric_name}`;
     return `<option value="${value}">${label}</option>`;
   });
 

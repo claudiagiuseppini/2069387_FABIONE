@@ -89,20 +89,37 @@ class BackendStompListener(stomp.ConnectionListener):
     def on_message(self, frame):
         try:
             data = json.loads(frame.body)
-
             sensor_id = data.get("sensor_id", "unknown")
-            metric = data.get("metric", {})
-            metric_name = metric.get("name", "unknown")
-            key = f"{sensor_id}.{metric_name}"
+            
+            # Recuperiamo la lista di metriche (ora al plurale 'metrics')
+            metrics_list = data.get("metrics", [])
 
+            # Se il sensore invia più metriche (es. temp e umidità), 
+            # le salviamo singolarmente nel dizionario latest_state 
+            # così il frontend può visualizzarle separatamente.
             with state_lock:
-                latest_state[key] = data
+                for m_item in metrics_list:
+                    metric_name = m_item.get("name", "unknown")
+                    key = f"{sensor_id}.{metric_name}"
+                    
+                    # Creiamo un "flat object" compatibile con il frontend 
+                    # che contiene i metadati del sensore e la singola metrica
+                    flat_data = {
+                        "sensor_id": sensor_id,
+                        "sensor_type": data.get("sensor_type"),
+                        "timestamp": data.get("timestamp"),
+                        "status": data.get("status"),
+                        "metric_name": metric_name,
+                        "value": m_item.get("value"),
+                        "unit": m_item.get("unit")
+                    }
+                    
+                    latest_state[key] = flat_data
 
-            add_event(f"Ricevuto aggiornamento {sensor_id}.{metric_name}", "info")
+            add_event(f"Update: {sensor_id} ({len(metrics_list)} metriche)", "info")
 
         except Exception as e:
             print(f"⚠️ Errore parsing messaggio broker: {e}", flush=True)
-
     def on_error(self, frame):
         print(f"❌ Errore STOMP backend: {frame.body}", flush=True)
 
