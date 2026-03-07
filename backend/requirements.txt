@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+stomp.py
+mysql-connector-python
+requests
+pydantic

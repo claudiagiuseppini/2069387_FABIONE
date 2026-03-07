@@ -12,10 +12,10 @@ services:
   broker:
     image: apache/activemq-artemis:latest-alpine
     ports:
-      - "61616:61616" # Porta per il protocollo CORE/OpenWire
-      - "1883:1883"   # Porta per il protocollo MQTT (fondamentale per i sensori)
+      - "61616:61616"
+      - "1883:1883"
       - "61613:61613"
-      - "8161:8161"   # Console Web (Dashboard di controllo)
+      - "8161:8161"
     environment:
       - ARTEMIS_USER=admin
       - ARTEMIS_PASSWORD=admin_password
@@ -25,13 +25,13 @@ services:
 
   ingestion-service:
     build: ./ingestion
-    networks:
-      - iot-network 
     depends_on:
       - simulator
       - broker
     environment:
-      - PYTHONUNBUFFERED=1 
+      - PYTHONUNBUFFERED=1
+    networks:
+      - iot-network
 
   processing:
     build: ./processing
@@ -39,6 +39,18 @@ services:
     depends_on:
       - broker
       - db
+      - simulator
+    networks:
+      - iot-network
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    depends_on:
+      - broker
+      - db
+      - simulator
     networks:
       - iot-network
 
@@ -51,10 +63,17 @@ services:
       MYSQL_USER: user_mars
       MYSQL_PASSWORD: password_mars
     volumes:
-      # Script di inizializzazione
       - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-      # Cartella fisica per i dati 
       - ./db/data:/var/lib/mysql
+    networks:
+      - iot-network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
     networks:
       - iot-network
 
