@@ -28,10 +28,13 @@ DB_CONF = {
 @dataclass
 class Metric:
     sensor_id: str
+    sensor_type: str        
     metric_name: str
     value: float
-    unit: str
-    timestamp: float = time.time()
+    unit: Optional[str]
+    timestamp: str          
+    source: Optional[str]   
+    status: str
 
 # --- LOGICA DATABASE ---
 def get_db_connection():
@@ -97,28 +100,34 @@ def send_actuator_command(actuator_id: str, command: str):
 
 # --- PIPELINE DI ELABORAZIONE ---
 def process_message(body: str, topic: str):
-    """Funzione principale che trasforma il messaggio raw in azione."""
+    """Funzione principale che trasforma il nuovo schema unificato in azione."""
     try:
         data = json.loads(body)
         
-        # Trasformiamo il JSON nella nostra dataclass ordinata
+        # Estraiamo l'oggetto interno delle metriche per comodità
+        inner_metric = data.get('metric', {})
+        
+        # Mappiamo il JSON sulla Dataclass
         m = Metric(
             sensor_id=data.get('sensor_id', 'unknown'),
-            metric_name=data.get('metric_name', 'unknown'),
-            value=float(data.get('value', 0.0)),
-            unit=data.get('unit', ''),
-            timestamp=data.get('timestamp', time.time())
+            sensor_type=data.get('sensor_type', 'unknown'),
+            metric_name=inner_metric.get('name', 'unknown'),  
+            value=float(inner_metric.get('value', 0.0)),      
+            unit=inner_metric.get('unit', ''),               
+            timestamp=data.get('timestamp', ''),
+            source=data.get('source'),
+            status=data.get('status', 'ok')
         )
         
-        print(f"🔔 Notifica: {m.sensor_id}.{m.metric_name} = {m.value}", flush=True)
+        print(f"🔔 Notifica [{m.sensor_type}]: {m.sensor_id}.{m.metric_name} = {m.value} {m.unit}", flush=True)
         
-        # Eseguiamo i compiti in sequenza
+        # Eseguiamo le regole (passando l'oggetto Metric aggiornato)
         check_rules_and_actuate(m)
         
     except json.JSONDecodeError:
-        print(f"⚠️ Messaggio ricevuto non è un JSON valido: {body[:50]}...", flush=True)
+        print(f"⚠️ Messaggio non JSON: {body[:50]}...", flush=True)
     except Exception as e:
-        print(f"⚠️ Errore durante il processamento: {e}", flush=True)
+        print(f"⚠️ Errore processamento su topic {topic}: {e}", flush=True)
 
 # --- INFRASTRUTTURA STOMP ---
 class StompBridge(stomp.ConnectionListener):

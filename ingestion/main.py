@@ -29,30 +29,85 @@ def connect_stomp_generic(conn, label):
 
 # --- FUNZIONI DI SUPPORTO (Invariate) ---
 
-def normalize_to_metrics(sensor_id, raw_data):
-    normalized_outputs = []
-    timestamp = time.time()
-    unit_generale = raw_data.get("unit", " ")
+import datetime
 
-    def extract(data, prefix=""):
-        if isinstance(data, dict):
-            for key, value in data.items():
-                if key in ["unit", "status", "timestamp", "sensor_id"]:
-                    continue
-                extract(value, f"{prefix}{key}" if not prefix else f"{prefix}_{key}")
-        elif isinstance(data, list):
-            for i, item in enumerate(data):
-                extract(item, f"{prefix}_{i}")
-        elif isinstance(data, (int, float)):
-            normalized_outputs.append({
-                "sensor_id": sensor_id,
-                "timestamp": timestamp,
-                "metric_name": prefix if prefix else "value",
-                "value": float(data),
-                "unit": unit_generale
-            })
-    extract(raw_data)
-    return normalized_outputs
+def normalize_data(raw_data: dict) -> list:
+    normalized_list = []
+    
+    # 1. Identificazione Metadati Comuni
+    # sensor_id e sensor_type
+    if "sensor_id" in raw_data:
+        sensor_id = raw_data["sensor_id"]
+        sensor_type = "sensor"
+    elif "topic" in raw_data:
+        # Rimuove "/topic/mars/" o "mars/telemetry/" se presente
+        sensor_id = raw_data["topic"].replace("/topic/mars/", "").replace("mars/telemetry/", "")
+        sensor_type = "telemetric"
+    else:
+        sensor_id = "unknown"
+        sensor_type = "unknown"
+
+    # Timestamp (conversione in integer unix timestamp)
+    timestamp= raw_data.get("captured_at") or raw_data.get("event_time")
+    
+    # Status
+    status = raw_data.get("status") or raw_data.get("last_state", "unknown")
+
+    # Source (Peculiarità specifiche)
+    source = None
+    if "subsystem" in raw_data:
+        source = raw_data["subsystem"]
+    elif isinstance(raw_data.get("source"), dict):
+        source = raw_data["source"].get("segment")
+    elif "loop" in raw_data:
+        source = raw_data["loop"]
+    elif "airlock_id" in raw_data:
+        source = raw_data["airlock_id"]
+
+    # 2. Estrazione delle Metriche (Logica di branching basata sui pattern)
+    metrics_to_process = [] # Lista di tuple (name, value, unit)
+
+    # Caso A: Lista di measurements (Array di oggetti)
+    if "measurements" in raw_data and isinstance(raw_data["measurements"], list):
+        for m in raw_data["measurements"]:
+            metrics_to_process.append((m.get("metric"), m.get("value"), m.get("unit")))
+
+    # Caso B: Singola metrica esplicita (Campi 'metric', 'value', 'unit')
+    elif "metric" in raw_data and "value" in raw_data:
+        metrics_to_process.append((raw_data.get("metric"), raw_data.get("value"), raw_data.get("unit")))
+
+    # Caso C: Metriche come nomi di campi (Peculiarità specifiche)
+    else:
+        # Definiamo i set di chiavi note che rappresentano metriche numeriche
+        potential_metrics = [
+            "pm1_ug_m3", "pm25_ug_m3", "pm10_ug_m3", 
+            "level_pct", "level_liters",
+            "power_kw", "voltage_v", "current_a", "cumulative_kwh",
+            "temperature_c", "flow_l_min",
+            "cycles_per_hour"
+        ]
+        for key in potential_metrics:
+            if key in raw_data:
+                metrics_to_process.append((key, raw_data[key], None))
+
+    # 3. Costruzione dello Schema Unificato
+    for name, val, unit in metrics_to_process:
+        normalized_schema = {
+            "sensor_id": sensor_id,
+            "sensor_type": sensor_type,
+            "timestamp": timestamp,
+            "source": source,
+            "status": status,
+            "metric": {
+                "name": name,
+                "value": val,
+                "unit": unit
+            }
+        }
+        normalized_list.append(normalized_schema)
+
+    print(normalized_list)
+    return normalized_list
 
 def get_sensors_list():
     try:
@@ -67,24 +122,33 @@ def get_sensors_list():
 
 def poll_sensors():
     active_sensors = get_sensors_list()
+    print(f"🚀 Polling SENSORI avviato su: {active_sensors}", flush=True)
+    
     while True:
-        connect_stomp_generic(stomp_conn_poll, "POLLING") # Usa connessione poll
+        connect_stomp_generic(stomp_conn_poll, "POLLING")
         for sensor in active_sensors:
             try:
                 response = requests.get(f"{SIMULATOR_URL}/api/sensors/{sensor}", timeout=5)
                 if response.status_code == 200:
-                    metrics = normalize_to_metrics(sensor, response.json())
-                    for metric in metrics:
-                        topic = f"/topic/mars.metrics.{metric['sensor_id']}.{metric['metric_name']}"
-                        # Invia tramite connessione poll
-                        stomp_conn_poll.send(body=json.dumps(metric), destination=topic)
-                        print(f"[POLL] {topic} -> {metric['value']}", flush=True)
+                    metrics = normalize_data(response.json())
+                    
+                    for m in metrics:
+
+                        metric_name = m['metric']['name']
+                        metric_value = m['metric']['value']
+                        metric_unit = m['metric']['unit'] or ""
+
+                        topic = f"/topic/mars.metrics.{m['sensor_id']}.{metric_name}"
+
+                        stomp_conn_poll.send(body=json.dumps(m), destination=topic)
+                        
+                        print(f"[POLL] {topic} -> {metric_value} {metric_unit}", flush=True)
                 else:
                     print(f"Errore simulatore su {sensor}: {response.status_code}", flush=True)
             except Exception as e:
-                print(f"Errore polling {sensor}: {e}", flush=True)
+                print(f"Errore durante il processing di {sensor}: {e}", flush=True)
+        
         time.sleep(5)
-
 # --- THREAD 2: STREAMING TELEMETRIE ---
 
 def get_telemetry_list():
@@ -110,14 +174,11 @@ def stream_telemetry(topic_id):
                 if event.data:
                     raw_data = json.loads(event.data)
 
-                    print(raw_data)
-                    item_id = raw_data.get("id") or raw_data.get("sensor_id", "telemetry_unknown")
-                    metrics = normalize_to_metrics(item_id, raw_data)
+                    metrics = normalize_data(raw_data)
                     for metric in metrics:
-                        topic = f"/topic/mars.telemetry.{metric['sensor_id']}.{metric['metric_name']}"
-                        # Invia tramite connessione telemetria
-                        stomp_conn_telemetry.send(body=json.dumps(metric), destination=topic)
-                        print(f"[STREAM] {topic} -> {metric['value']}", flush=True)
+                        dest_topic = f"/topic/mars.telemetry.{metric['sensor_id']}.{metric['metric']['name']}"
+                        stomp_conn_telemetry.send(body=json.dumps(metric), destination=dest_topic)
+                        print(f"[STREAM] {dest_topic} -> {metric['metric']['value']} {metric['metric']['unit'] or ''}", flush=True)
         except Exception as e:
             print(f"Connessione SSE persa ({e}). Riconnessione in corso...", flush=True)
             time.sleep(5)
