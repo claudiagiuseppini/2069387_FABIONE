@@ -29,6 +29,7 @@ services:
       - iot-network 
     depends_on:
       - simulator
+      - broker
     environment:
       - PYTHONUNBUFFERED=1 
 
@@ -37,6 +38,7 @@ services:
     container_name: processing_service
     depends_on:
       - broker
+      - db
     networks:
       - iot-network
 

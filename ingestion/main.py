@@ -217,6 +217,7 @@ app = FastAPI(lifespan=lifespan)
 @app.get("/health")
 def health():
     return {
-        "status": "ingestion alive", 
-        "broker_connected": stomp_conn.is_connected()
+        "status": "ingestion alive",
+        "broker_poll_connected": stomp_conn_poll.is_connected(),
+        "broker_telemetry_connected": stomp_conn_telemetry.is_connected()
     }
