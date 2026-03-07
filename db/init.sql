@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS automation_rules (
     id INT AUTO_INCREMENT PRIMARY KEY,
     sensor_name VARCHAR(255) NOT NULL, -- es. greenhouse_temperature
     metric_name VARCHAR(255) NOT NULL,
-    metric_name, operator VARCHAR(2) NOT NULL,      -- <, <=, =, >, >= [cite: 97]
+    operator VARCHAR(2) NOT NULL,      -- <, <=, =, >, >= [cite: 97]
     threshold FLOAT NOT NULL,          -- Valore di soglia
     actuator_name VARCHAR(255) NOT NULL, -- es. cooling_fan
     action_value VARCHAR(10) NOT NULL, -- ON / OFF

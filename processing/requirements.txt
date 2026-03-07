@@ -2,3 +2,4 @@ stomp.py                    # Protocollo di comunicazione con Artemis
 mysql-connector-python      # Driver ufficiale per MariaDB/MySQL
 python-dotenv               # Per caricare le configurazioni da file .env
 cryptography                # Necessario per alcuni metodi di autenticazione MariaDB
+requests
