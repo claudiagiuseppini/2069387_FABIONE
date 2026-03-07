@@ -29,10 +29,8 @@ def connect_stomp_generic(conn, label):
 
 # --- FUNZIONI DI SUPPORTO (Invariate) ---
 
-import datetime
 
-def normalize_data(raw_data: dict) -> list:
-    normalized_list = []
+def normalize_data(raw_data: dict):
     
     # 1. Identificazione Metadati Comuni
     # sensor_id e sensor_type
@@ -90,24 +88,28 @@ def normalize_data(raw_data: dict) -> list:
             if key in raw_data:
                 metrics_to_process.append((key, raw_data[key], None))
 
-    # 3. Costruzione dello Schema Unificato
-    for name, val, unit in metrics_to_process:
-        normalized_schema = {
-            "sensor_id": sensor_id,
-            "sensor_type": sensor_type,
-            "timestamp": timestamp,
-            "source": source,
-            "status": status,
-            "metric": {
-                "name": name,
-                "value": val,
-                "unit": unit
-            }
-        }
-        normalized_list.append(normalized_schema)
 
-    print(normalized_list)
-    return normalized_list
+    # Costruiamo lo schema finale
+    metric_list = []
+    for name, value, unit in metrics_to_process:
+        metric_list.append({
+            "name": str(name),
+            "value": value,
+            "unit": unit if unit is not None else "" # Gestisce le unità mancanti
+        })
+
+    normalized_schema = {
+        "sensor_id": sensor_id,
+        "sensor_type": sensor_type,
+        "timestamp": timestamp,
+        "source": source,
+        "status": status,
+        "metrics": metric_list  # Ora è una lista di oggetti {name, value, unit}
+    }
+        
+
+    print(normalized_schema)
+    return normalized_schema
 
 def get_sensors_list():
     try:
@@ -130,19 +132,12 @@ def poll_sensors():
             try:
                 response = requests.get(f"{SIMULATOR_URL}/api/sensors/{sensor}", timeout=5)
                 if response.status_code == 200:
-                    metrics = normalize_data(response.json())
-                    
-                    for m in metrics:
+                    schema = normalize_data(response.json())
 
-                        metric_name = m['metric']['name']
-                        metric_value = m['metric']['value']
-                        metric_unit = m['metric']['unit'] or ""
-
-                        topic = f"/topic/mars.metrics.{m['sensor_id']}.{metric_name}"
-
-                        stomp_conn_poll.send(body=json.dumps(m), destination=topic)
-                        
-                        print(f"[POLL] {topic} -> {metric_value} {metric_unit}", flush=True)
+                    topic = f"/topic/mars.metrics.{schema['sensor_id']}"
+                    stomp_conn_poll.send(body=json.dumps(schema), destination=topic)
+                    for metric in schema['metrics']:
+                        print(f"[POLL] {topic} -> {metric['name']} {metric['value']} {metric['unit']}", flush=True)
                 else:
                     print(f"Errore simulatore su {sensor}: {response.status_code}", flush=True)
             except Exception as e:
@@ -174,11 +169,11 @@ def stream_telemetry(topic_id):
                 if event.data:
                     raw_data = json.loads(event.data)
 
-                    metrics = normalize_data(raw_data)
-                    for metric in metrics:
-                        dest_topic = f"/topic/mars.telemetry.{metric['sensor_id']}.{metric['metric']['name']}"
-                        stomp_conn_telemetry.send(body=json.dumps(metric), destination=dest_topic)
-                        print(f"[STREAM] {dest_topic} -> {metric['metric']['value']} {metric['metric']['unit'] or ''}", flush=True)
+                    schema = normalize_data(raw_data)
+                    dest_topic = f"/topic/mars.telemetry.{schema['sensor_id']}"
+                    stomp_conn_telemetry.send(body=json.dumps(schema), destination=dest_topic)
+                    for metric in schema['metrics']:
+                        print(f"[STREAM] {dest_topic} -> {metric['name']} {metric['value']} {metric['unit'] or ''}", flush=True)
         except Exception as e:
             print(f"Connessione SSE persa ({e}). Riconnessione in corso...", flush=True)
             time.sleep(5)

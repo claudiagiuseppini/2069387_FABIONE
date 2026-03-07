@@ -37,12 +37,11 @@ SIMULATOR_URL = "http://simulator:8080"
 @dataclass
 class Metric:
     sensor_id: str
-    sensor_type: str
-    metric_name: str
-    value: float
-    unit: Optional[str]
-    timestamp: str
-    source: Optional[str]
+    sensor_type: str        
+    values: dict            # Esempio: {'temperature_c': 24.8, 'humidity_pct': 45}
+    units: dict             # Esempio: {'temperature_c': 'C', 'humidity_pct': '%'}
+    timestamp: str          
+    source: Optional[str]   
     status: str
 
 
@@ -67,13 +66,11 @@ def get_rules(metric: Metric):
     try:
         cursor = conn.cursor(dictionary=True)
         query = """
-            SELECT id, operator, threshold, actuator_name, action_value
+            SELECT id, metric_name, operator, threshold, actuator_name, action_value
             FROM automation_rules
-            WHERE sensor_name = %s
-              AND metric_name = %s
-              AND enabled = TRUE
+            WHERE sensor_name = %s AND enabled = TRUE
         """
-        cursor.execute(query, (metric.sensor_id, metric.metric_name))
+        cursor.execute(query, (metric.sensor_id,))
         rules = cursor.fetchall()
         cursor.close()
     except Exception as e:
@@ -85,43 +82,52 @@ def get_rules(metric: Metric):
 
 
 # --- LOGICA APPLICATIVA (Regole e Attuatori) ---
-def check_rules_and_actuate(metric: Metric):
-    """Analizza il dato rispetto alle regole salvate nel DB."""
-    rules = get_rules(metric)
+from collections import Counter
 
+def check_rules_and_actuate(metric: Metric):
+    """
+    Analizza le metriche con supporto all'astensione (zona morta).
+    L'attuatore viene comandato solo se c'è almeno un voto attivo.
+    """
+    rules = get_rules(metric)
     if not rules:
-        print(f"ℹ️ Nessuna regola attiva per {metric.sensor_id}.{metric.metric_name}", flush=True)
         return
 
+    votes = []
+    
     for rule in rules:
-        op_str = rule["operator"]
-        threshold = rule["threshold"]
-        op_func = OPERATORS.get(op_str)
-
-        if not op_func:
-            print(f"⚠️ Operatore non supportato nella regola {rule.get('id')}: {op_str}", flush=True)
+        m_name = rule["metric_name"]
+        if m_name not in metric.values:
             continue
 
-        try:
-            if op_func(metric.value, threshold):
-                print(
-                    f"🎯 REGOLA ATTIVATA [rule_id={rule.get('id')}]: "
-                    f"{metric.sensor_id}.{metric.metric_name} {op_str} {threshold}",
-                    flush=True
-                )
+        val = metric.values[m_name]
+        op_func = OPERATORS.get(rule["operator"])
+        threshold = rule["threshold"]
+        action = rule["action_value"]
 
-                send_actuator_command(
-                    actuator_id=rule["actuator_name"],
-                    command=rule["action_value"]
-                )
-            else:
-                print(
-                    f"➖ Regola non attivata [rule_id={rule.get('id')}]: "
-                    f"{metric.value} {op_str} {threshold} -> False",
-                    flush=True
-                )
+        try:
+            # Una metrica vota SOLO se la sua condizione è vera
+            if op_func(val, threshold):
+                votes.append(action)
         except Exception as e:
             print(f"⚠️ Errore valutazione regola {rule.get('id')}: {e}", flush=True)
+
+    # --- Logica di Decisione ---
+    
+    if not votes:
+        # CASO ASTENSIONE TOTALE: 
+        # Nessuna metrica è sopra la soglia ON o sotto la soglia OFF.
+        # Non inviamo alcun comando per lasciare l'attuatore nello stato in cui si trova.
+        return
+
+    # Se ci sono voti, applichiamo la maggioranza
+    counts = Counter(votes)
+    final_decision, _ = counts.most_common(1)[0]
+    
+    print(f"⚖️  DECISIONE: {dict(counts)} -> Vince {final_decision}", flush=True)
+
+    target_actuator = rules[0]["actuator_name"]
+    send_actuator_command(target_actuator, final_decision)
 
 
 def send_actuator_command(actuator_id: str, command: str):
@@ -147,29 +153,37 @@ def send_actuator_command(actuator_id: str, command: str):
 
 # --- PIPELINE DI ELABORAZIONE ---
 def process_message(body: str, topic: str):
-    """Trasforma il messaggio JSON normalizzato in una metrica processabile."""
+    """Trasforma il messaggio JSON con lista di metriche in un unico oggetto Metric."""
     try:
         data = json.loads(body)
+        
+        # 1. Recuperiamo la lista 'metrics' dalJSON normalizzato
+        raw_metrics = data.get("metrics", [])
 
-        inner_metric = data.get("metric", {})
+        # 2. Creiamo dizionari per mappare i nomi ai valori/unità
+        # Questo ci permette di fare m.values['temperature_c'] nelle regole
+        metrics_values = {m['name']: m['value'] for m in raw_metrics}
+        metrics_units = {m['name']: m['unit'] for m in raw_metrics}
 
+        # 3. Creiamo un unico oggetto Metric che contiene tutto il pacchetto
         m = Metric(
             sensor_id=data.get("sensor_id", "unknown"),
             sensor_type=data.get("sensor_type", "unknown"),
-            metric_name=inner_metric.get("name", "unknown"),
-            value=float(inner_metric.get("value", 0.0)),
-            unit=inner_metric.get("unit", ""),
+            values=metrics_values,  # <--- Dizionario di valori
+            units=metrics_units,    # <--- Dizionario di unità
             timestamp=data.get("timestamp", ""),
             source=data.get("source"),
             status=data.get("status", "ok")
         )
 
+        # 4. Print di log per mostrare tutte le metriche insieme
+        metrics_str = ", ".join([f"{k}={v}{metrics_units.get(k, '')}" for k, v in metrics_values.items()])
         print(
-            f"🔔 Notifica [{m.sensor_type}] da topic={topic}: "
-            f"{m.sensor_id}.{m.metric_name} = {m.value} {m.unit or ''}",
+            f"🔔 Notifica [{m.sensor_type}] da {m.sensor_id}: {metrics_str}",
             flush=True
         )
 
+        # 5. Chiamiamo check_rules passandogli l'intero pacchetto
         check_rules_and_actuate(m)
 
     except json.JSONDecodeError:
