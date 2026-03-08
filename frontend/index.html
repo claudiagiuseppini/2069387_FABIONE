@@ -52,9 +52,15 @@
           <button class="btn btn-outline-info" id="refresh-dashboard-btn">
             <i class="bi bi-arrow-clockwise me-1"></i> Refresh
           </button>
-          <button class="btn btn-info text-dark fw-semibold" data-bs-toggle="modal" data-bs-target="#ruleModal" data-create-rule="true">
-            <i class="bi bi-plus-circle me-1"></i> New Rule
-          </button>
+          <a
+            class="btn btn-outline-light notification-jump-btn"
+            id="alerts-jump-btn"
+            href="#alerts-event-stream"
+            aria-label="Vai alla sezione Alerts & Event Stream"
+            title="Vai ad Alerts & Event Stream"
+          >
+            <i class="bi bi-bell"></i>
+          </a>
         </div>
       </div>
     </section>
@@ -246,8 +252,8 @@
         </div>
       </div>
 
-      <div class="col-12 col-lg-4">
-        <div class="card bg-black border-secondary shadow-sm h-100">
+      <div class="col-12 col-lg-4" id="alerts-event-stream">
+        <div class="card bg-black border-secondary shadow-sm h-100" id="alerts-event-card">
           <div class="card-header border-secondary">
             <h2 class="h5 mb-0 text-white">Alerts & Event Stream</h2>
             <small class="text-secondary">Last relevant events from system</small>
