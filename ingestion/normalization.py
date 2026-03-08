@@ -12,7 +12,7 @@ def normalize_data(raw_data: dict):
         sensor_type = "unknown"
 
     timestamp = raw_data.get("captured_at") or raw_data.get("event_time")
-    status = raw_data.get("status") or raw_data.get("last_state", "unknown")
+    status = raw_data.get("status") or raw_data.get("last_state", "ok")
 
     # Logica Source
     source = None

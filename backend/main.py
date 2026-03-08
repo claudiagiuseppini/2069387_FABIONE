@@ -113,7 +113,8 @@ class BackendStompListener(stomp.ConnectionListener):
                         "status": data.get("status"),
                         "metric_name": metric_name,
                         "value": m_item.get("value"),
-                        "unit": m_item.get("unit")
+                        "unit": m_item.get("unit"),
+                        "source": data.get("source")
                     }
                     
                     latest_state[key] = flat_data
