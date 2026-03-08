@@ -18,6 +18,48 @@ const STREAM_CONFIG = {
   fallbackPollingMs: 10000
 };
 
+const SENSOR_GROUPS = [
+  {
+    key: "priority",
+    title: "PRIORITY",
+    sensors: [
+      "airlock",
+      "greenhouse_temperature",
+      "life_support",
+      "radiation",
+      "water_tank_level"
+    ]
+  },
+  {
+    key: "air",
+    title: "AIR",
+    sensors: [
+      "co2_hall",
+      "air_quality_pm25",
+      "air_quality_voc"
+    ]
+  },
+  {
+    key: "power",
+    title: "POWER",
+    sensors: [
+      "power_consumption",
+      "power_bus",
+      "solar_array"
+    ]
+  },
+  {
+    key: "miscellaneous",
+    title: "MISCELLANEOUS",
+    sensors: [
+      "thermal_loop",
+      "hydroponic_ph",
+      "entrance_humidity",
+      "corridor_pressure"
+    ]
+  }
+];
+
 /* =========================
    STATE
 ========================= */
@@ -33,7 +75,7 @@ const appState = {
     habitat_heater: "OFF"
   },
   eventLog: [],
-  openSensorGroups: new Set()
+  openGroups: new Set(["priority"])
 };
 
 const streamState = {
@@ -268,26 +310,37 @@ async function apiFetch(url, options = {}) {
   return response.text();
 }
 
-function groupSensorsBySource(sensors) {
+function groupSensorsByCategories(sensors) {
   const groups = new Map();
 
-  sensors.forEach(sensor => {
-    const key = safeText(sensor.sensor_id, "unknown_sensor");
-
-    if (!groups.has(key)) {
-      groups.set(key, {
-        sensorId: key,
-        sensorType: safeText(sensor.sensor_type, "unknown"),
-        metrics: []
-      });
-    }
-
-    groups.get(key).metrics.push(sensor);
+  // Initialize groups
+  SENSOR_GROUPS.forEach(group => {
+    groups.set(group.key, {
+      key: group.key,
+      title: group.title,
+      metrics: []
+    });
   });
 
-  return Array.from(groups.values()).sort((a, b) =>
-    a.sensorId.localeCompare(b.sensorId)
-  );
+  sensors.forEach(sensor => {
+    let found = false;
+    for (const group of SENSOR_GROUPS) {
+      if (group.sensors.includes(sensor.sensor_id)) {
+        groups.get(group.key).metrics.push(sensor);
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      // Add to miscellaneous if not matched
+      if (groups.has('miscellaneous')) {
+        groups.get('miscellaneous').metrics.push(sensor);
+      }
+    }
+  });
+
+  // Return in the order defined, only non-empty
+  return SENSOR_GROUPS.map(group => groups.get(group.key)).filter(group => group.metrics.length > 0);
 }
 
 function sanitizeGroupKey(value) {
@@ -333,15 +386,15 @@ function bindSensorGroupToggles() {
 
       if (!groupName || !details) return;
 
-      const isOpen = appState.openSensorGroups.has(groupName);
+      const isOpen = appState.openGroups.has(groupName);
 
       if (isOpen) {
-        appState.openSensorGroups.delete(groupName);
+        appState.openGroups.delete(groupName);
         toggle.classList.add("collapsed");
         toggle.setAttribute("aria-expanded", "false");
         details.classList.remove("open");
       } else {
-        appState.openSensorGroups.add(groupName);
+        appState.openGroups.add(groupName);
         toggle.classList.remove("collapsed");
         toggle.setAttribute("aria-expanded", "true");
         details.classList.add("open");
@@ -358,7 +411,8 @@ function updateOverview() {
   const uniqueSensorIds = new Set(appState.latestSensors.map(s => s.sensor_id));
   dom.activeSensorsCount.textContent = uniqueSensorIds.size;
 
-  dom.sensorCardsBadge.textContent = `${uniqueSensorIds.size} categories · ${appState.latestSensors.length} metrics`;
+  const groupedSensors = groupSensorsByCategories(appState.latestSensors);
+  dom.sensorCardsBadge.textContent = `${groupedSensors.length} categories · ${appState.latestSensors.length} metrics`;
 
   const telemetryCount = appState.latestSensors.filter(
     item => String(item.sensor_type || "").toLowerCase().includes("tele")
@@ -393,13 +447,31 @@ function renderSensorCards() {
     return;
   }
 
-  const groupedSensors = groupSensorsBySource(appState.latestSensors);
+  // Preserve scroll position of open categories
+  const scrollPositions = {};
+  document.querySelectorAll('.sensor-group-details.open').forEach(el => {
+    scrollPositions[el.id] = el.scrollTop;
+  });
+
+  // Disable transitions for seamless update
+  dom.sensorCardsContainer.classList.add('no-transition');
+
+  const groupedSensors = groupSensorsByCategories(appState.latestSensors);
 
   const html = groupedSensors.map(group => {
-    const groupKey = sanitizeGroupKey(group.sensorId);
+    const groupKey = sanitizeGroupKey(group.key);
     const collapseId = `sensor-group-${groupKey}`;
-    const isOpen = appState.openSensorGroups.has(group.sensorId);
+    const isOpen = appState.openGroups.has(group.key);
+    const sensorsCount = new Set(group.metrics.map(s => s.sensor_id)).size;
     const metricsCount = group.metrics.length;
+
+    // Group sensors within category by sensor_id
+    const sensorGroups = group.metrics.reduce((acc, sensor) => {
+      const id = sensor.sensor_id;
+      if (!acc[id]) acc[id] = [];
+      acc[id].push(sensor);
+      return acc;
+    }, {});
 
     return `
       <div class="col-12">
@@ -407,15 +479,15 @@ function renderSensorCards() {
           <button
             class="sensor-group-toggle ${isOpen ? "" : "collapsed"}"
             type="button"
-            data-sensor-group="${group.sensorId}"
+            data-sensor-group="${group.key}"
             aria-expanded="${isOpen ? "true" : "false"}"
             aria-controls="${collapseId}"
           >
             <div class="sensor-group-header">
               <div>
-                <div class="sensor-title mb-1">${group.sensorId}</div>
+                <div class="sensor-title mb-1">${group.title}</div>
                 <div class="sensor-subtitle mb-0">
-                  ${group.sensorType} · ${metricsCount} metric${metricsCount !== 1 ? "s" : ""}
+                  ${sensorsCount} sensor${sensorsCount !== 1 ? "s" : ""} · ${metricsCount} metric${metricsCount !== 1 ? "s" : ""}
                 </div>
               </div>
 
@@ -426,8 +498,15 @@ function renderSensorCards() {
           </button>
 
           <div id="${collapseId}" class="sensor-group-details ${isOpen ? "open" : ""}">
-            <div class="sensor-group-metrics">
-              ${group.metrics.map(buildMetricRow).join("")}
+            <div class="category-sensors">
+              ${Object.entries(sensorGroups).map(([sensorId, sensors]) => `
+                <div class="sensor-section">
+                  <h6 class="sensor-section-title">${sensorId}</h6>
+                  <div class="sensor-group-metrics">
+                    ${sensors.map(buildMetricRow).join("")}
+                  </div>
+                </div>
+              `).join("")}
             </div>
           </div>
         </div>
@@ -436,6 +515,13 @@ function renderSensorCards() {
   }).join("");
 
   dom.sensorCardsContainer.innerHTML = html;
+  // Restore scroll positions
+  Object.entries(scrollPositions).forEach(([id, top]) => {
+    const el = document.getElementById(id);
+    if (el) el.scrollTop = top;
+  });
+  // Re-enable transitions
+  dom.sensorCardsContainer.classList.remove('no-transition');
   bindSensorGroupToggles();
   populateChartSelect(appState.latestSensors);
 }
