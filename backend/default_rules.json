@@ -1,0 +1,164 @@
+[
+  {
+    "sensor_name": "greenhouse_temperature",
+    "metric_name": "temperature_c",
+    "operator": ">",
+    "threshold": 27,
+    "actuator_name": "cooling_fan",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "greenhouse_temperature",
+    "metric_name": "temperature_c",
+    "operator": "<",
+    "threshold": 23,
+    "actuator_name": "cooling_fan",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "entrance_humidity",
+    "metric_name": "humidity_pct",
+    "operator": "<",
+    "threshold": 28,
+    "actuator_name": "entrance_humidifier",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "entrance_humidity",
+    "metric_name": "humidity_pct",
+    "operator": ">",
+    "threshold": 31,
+    "actuator_name": "entrance_humidifier",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "co2_hall",
+    "metric_name": "co2_ppm",
+    "operator": ">",
+    "threshold": 1300.0,
+    "actuator_name": "hall_ventilation",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "co2_hall",
+    "metric_name": "co2_ppm",
+    "operator": "<",
+    "threshold": 1280.0,
+    "actuator_name": "hall_ventilation",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "corridor_pressure",
+    "metric_name": "pressure_kpa",
+    "operator": "<",
+    "threshold": 100,
+    "actuator_name": "hall_ventilation",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "corridor_pressure",
+    "metric_name": "pressure_kpa",
+    "operator": ">",
+    "threshold": 101,
+    "actuator_name": "hall_ventilation",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_pm25",
+    "metric_name": "pm1_ug_m3",
+    "operator": ">",
+    "threshold": 15,
+    "actuator_name": "hall_ventilation",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_pm25",
+    "metric_name": "pm1_ug_m3",
+    "operator": "<",
+    "threshold": 12,
+    "actuator_name": "hall_ventilation",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_pm25",
+    "metric_name": "pm25_ug_m3",
+    "operator": ">",
+    "threshold": 18,
+    "actuator_name": "hall_ventilation",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_pm25",
+    "metric_name": "pm25_ug_m3",
+    "operator": "<",
+    "threshold": 15,
+    "actuator_name": "hall_ventilation",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_pm25",
+    "metric_name": "pm10_ug_m3",
+    "operator": ">",
+    "threshold": 26,
+    "actuator_name": "hall_ventilation",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_pm25",
+    "metric_name": "pm10_ug_m3",
+    "operator": "<",
+    "threshold": 24,
+    "actuator_name": "hall_ventilation",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_voc",
+    "metric_name": "voc_ppb",
+    "operator": ">",
+    "threshold": 242,
+    "actuator_name": "hall_ventilation",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_voc",
+    "metric_name": "voc_ppb",
+    "operator": "<",
+    "threshold": 240,
+    "actuator_name": "hall_ventilation",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_voc",
+    "metric_name": "co2e_ppm",
+    "operator": ">",
+    "threshold": 505,
+    "actuator_name": "hall_ventilation",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "air_quality_voc",
+    "metric_name": "co2e_ppm",
+    "operator": "<",
+    "threshold": 499,
+    "actuator_name": "hall_ventilation",
+    "action_value": "OFF",
+    "enabled": true
+  }
+]

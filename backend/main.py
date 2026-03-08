@@ -2,6 +2,7 @@ import json
 import asyncio
 import time
 import threading
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -28,6 +29,7 @@ DB_CONF = {
 }
 
 SIMULATOR_URL = "http://simulator:8080"
+DEFAULT_RULES_FILE = Path(__file__).with_name("default_rules.json")
 
 latest_state = {}
 event_log = []
@@ -85,6 +87,42 @@ def add_event(message: str, event_type: str = "info"):
             "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
         })
         del event_log[50:]
+
+
+def load_default_rules():
+    try:
+        with DEFAULT_RULES_FILE.open("r", encoding="utf-8") as handle:
+            payload = json.load(handle)
+    except FileNotFoundError:
+        raise HTTPException(status_code=500, detail="File regole default non trovato")
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=500, detail=f"JSON regole default non valido: {e}")
+
+    if not isinstance(payload, list) or not payload:
+        raise HTTPException(status_code=500, detail="Regole default mancanti o formato non valido")
+
+    required_keys = {
+        "sensor_name",
+        "metric_name",
+        "operator",
+        "threshold",
+        "actuator_name",
+        "action_value",
+        "enabled"
+    }
+
+    for idx, rule in enumerate(payload):
+        if not isinstance(rule, dict):
+            raise HTTPException(status_code=500, detail=f"Regola default non valida in posizione {idx}")
+        missing = required_keys - set(rule.keys())
+        if missing:
+            missing_str = ", ".join(sorted(missing))
+            raise HTTPException(
+                status_code=500,
+                detail=f"Regola default incompleta in posizione {idx}: mancano {missing_str}"
+            )
+
+    return payload
 
 
 class BackendStompListener(stomp.ConnectionListener):
@@ -478,6 +516,59 @@ def delete_rule(rule_id: int):
 
         return {"ok": True, "id": rule_id}
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        conn.close()
+
+
+@app.post("/api/rules/reset")
+def reset_rules_to_default():
+    default_rules = load_default_rules()
+
+    conn = get_db_connection()
+    if not conn:
+        raise HTTPException(status_code=500, detail="Connessione DB fallita")
+
+    try:
+        cursor = conn.cursor()
+
+        # TRUNCATE resets AUTO_INCREMENT so IDs start again from 1.
+        cursor.execute("TRUNCATE TABLE automation_rules")
+        cursor.executemany(
+            """
+            INSERT INTO automation_rules
+            (id, sensor_name, metric_name, operator, threshold, actuator_name, action_value, enabled)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """,
+            [
+                (
+                    idx,
+                    rule["sensor_name"],
+                    rule["metric_name"],
+                    rule["operator"],
+                    rule["threshold"],
+                    rule["actuator_name"],
+                    rule["action_value"],
+                    int(rule["enabled"])
+                )
+                for idx, rule in enumerate(default_rules, start=1)
+            ]
+        )
+
+        conn.commit()
+        reset_count = len(default_rules)
+        cursor.close()
+
+        add_event(f"Reset regole completato: {reset_count} regole default ripristinate", "warning")
+
+        return {
+            "ok": True,
+            "reset_count": reset_count
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        conn.rollback()
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         conn.close()
