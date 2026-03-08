@@ -9,7 +9,12 @@ const API_CONFIG = {
   rules: `${API_BASE}/api/rules`,
   actuators: `${API_BASE}/api/actuators`,
   events: `${API_BASE}/api/events`,
-  health: `${API_BASE}/api/health`
+  health: `${API_BASE}/api/health`,
+  dashboardStream: `${API_BASE}/api/stream/dashboard`
+};
+
+const STREAM_CONFIG = {
+  fallbackPollingMs: 10000
 };
 
 /* =========================
@@ -26,6 +31,12 @@ const appState = {
     habitat_heater: "OFF"
   },
   eventLog: []
+};
+
+const streamState = {
+  source: null,
+  fallbackTimer: null,
+  connected: false
 };
 
 /* =========================
@@ -411,15 +422,133 @@ async function loadRules() {
 async function loadHealth() {
   try {
     const data = await apiFetch(API_CONFIG.health);
-
-    const ok = data.status || data.ok || data.service;
-    dom.systemStatusBadge.textContent = ok ? "System Online" : "System Degraded";
-    dom.systemStatusBadge.className = ok
-      ? "badge rounded-pill text-bg-success"
-      : "badge rounded-pill text-bg-danger";
+    updateSystemBadge(data);
   } catch (error) {
     dom.systemStatusBadge.textContent = "System Offline";
     dom.systemStatusBadge.className = "badge rounded-pill text-bg-danger";
+  }
+}
+
+function updateSystemBadge(data) {
+  const ok = data?.status || data?.ok || data?.service;
+  dom.systemStatusBadge.textContent = ok ? "System Online" : "System Degraded";
+  dom.systemStatusBadge.className = ok
+    ? "badge rounded-pill text-bg-success"
+    : "badge rounded-pill text-bg-danger";
+}
+
+function applyDashboardSnapshot(snapshot) {
+  if (Array.isArray(snapshot.latest)) {
+    appState.latestSensors = snapshot.latest;
+    renderSensorCards();
+  }
+
+  if (snapshot.actuators && typeof snapshot.actuators === "object") {
+    appState.actuators = {
+      ...appState.actuators,
+      ...Object.fromEntries(
+        Object.entries(snapshot.actuators).map(([key, value]) => [
+          key,
+          String(value || "OFF").toUpperCase()
+        ])
+      )
+    };
+    renderActuators();
+  }
+
+  if (snapshot.health && typeof snapshot.health === "object") {
+    updateSystemBadge(snapshot.health);
+  }
+
+  updateOverview();
+}
+
+function stopFallbackPolling() {
+  if (streamState.fallbackTimer) {
+    clearInterval(streamState.fallbackTimer);
+    streamState.fallbackTimer = null;
+  }
+}
+
+function startFallbackPolling() {
+  if (streamState.fallbackTimer) return;
+
+  streamState.fallbackTimer = setInterval(async () => {
+    await loadHealth();
+    await loadLatestState();
+    await loadActuators();
+  }, STREAM_CONFIG.fallbackPollingMs);
+}
+
+function closeDashboardStream() {
+  if (streamState.source) {
+    streamState.source.close();
+    streamState.source = null;
+  }
+  streamState.connected = false;
+}
+
+function startDashboardStream() {
+  if (typeof EventSource === "undefined") {
+    startFallbackPolling();
+    return;
+  }
+
+  closeDashboardStream();
+
+  const source = new EventSource(API_CONFIG.dashboardStream);
+  streamState.source = source;
+
+  source.onopen = () => {
+    const firstConnect = !streamState.connected;
+    streamState.connected = true;
+    stopFallbackPolling();
+
+    if (firstConnect) {
+      logEvent("SSE connesso: aggiornamenti real-time attivi", "success");
+    }
+  };
+
+  source.onmessage = event => {
+    try {
+      const snapshot = JSON.parse(event.data);
+      applyDashboardSnapshot(snapshot);
+    } catch (error) {
+      console.error("Errore parsing evento SSE:", error);
+    }
+  };
+
+  source.onerror = () => {
+    if (streamState.connected) {
+      logEvent("SSE disconnesso: attivo fallback polling", "warning");
+      streamState.connected = false;
+    }
+
+    // EventSource gestisce automaticamente la riconnessione.
+  };
+}
+
+async function loadActuators() {
+  try {
+    const data = await apiFetch(API_CONFIG.actuators);
+
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      appState.actuators = {
+        ...appState.actuators,
+        ...Object.fromEntries(
+          Object.entries(data).map(([key, value]) => [
+            key,
+            String(value || "OFF").toUpperCase()
+          ])
+        )
+      };
+    }
+
+    renderActuators();
+    updateOverview();
+  } catch (error) {
+    console.error("Errore loadActuators:", error);
+    logEvent("Errore caricamento attuatori", "danger");
   }
 }
 
@@ -596,7 +725,8 @@ async function refreshDashboard() {
   await Promise.all([
     loadHealth(),
     loadLatestState(),
-    loadRules()
+    loadRules(),
+    loadActuators()
   ]);
 
   renderActuators();
@@ -613,12 +743,7 @@ async function init() {
   logEvent("Frontend inizializzato", "info");
 
   await refreshDashboard();
-
-  // Polling semplice ogni 10 secondi
-  setInterval(async () => {
-    await loadHealth();
-    await loadLatestState();
-  }, 10000);
+  startDashboardStream();
 }
 
 document.addEventListener("DOMContentLoaded", init);
