@@ -292,7 +292,7 @@ function updateOverview() {
   ).length;
   dom.activeActuatorsCount.textContent = actuatorsOn;
 
-  dom.lastUpdateLabel.textContent = `Last update: ${nowLabel()}`;
+  dom.lastUpdateLabel.textContent = `Time: ${nowLabel()}`;
 }
 
 /* =========================
@@ -431,9 +431,9 @@ function renderEventLog() {
 
   const html = appState.eventLog.map(event => `
     <li class="list-group-item border-secondary">
-      <div class="event-item event-${event.type}">
-        <div class="fw-semibold">${event.message}</div>
-        <div class="event-time">${event.time}</div>
+      <div class="text-white event-item event-${event.type}">
+        <div class="text-white fw-semibold">${event.message}</div>
+        <div class="text-white event-time">${event.time}</div>
       </div>
     </li>
   `).join("");
