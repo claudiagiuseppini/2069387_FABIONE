@@ -16,7 +16,7 @@ USER STORIES
 14. As the User I want to visualize related sensors near to each other
 15. As the User I want to see how much time has passed from latest timestamp
 16. As the User I want to visualize dangerous conditions as red
-17. As the User I want to see the power consumption of the sections
+17. 
 18. As the User I want to see the which sensors are in warning status
-19. As the User I want to know when airlock is pressurizing
+19. 
 20. As the User I want to be notified when a rule has been broken

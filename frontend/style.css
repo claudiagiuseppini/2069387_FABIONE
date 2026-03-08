@@ -20,6 +20,10 @@
   --transition-fast: 0.2s ease;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background:
     radial-gradient(circle at top right, rgba(56, 189, 248, 0.08), transparent 20%),
@@ -63,6 +67,39 @@ body {
 
 .navbar-brand {
   letter-spacing: 0.3px;
+}
+
+.notification-jump-btn {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 0.8rem;
+}
+
+.notification-jump-btn i {
+  font-size: 1.1rem;
+  line-height: 1;
+}
+
+#alerts-event-card.alerts-card-highlight {
+  border-color: rgba(56, 189, 248, 0.95) !important;
+  box-shadow: 0 0 0 2px rgba(56, 189, 248, 0.42), 0 0 28px rgba(56, 189, 248, 0.28);
+  animation: alertsCardPulse 1.1s ease-out;
+}
+
+@keyframes alertsCardPulse {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.01);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 /* Cards */

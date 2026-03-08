@@ -85,6 +85,11 @@ const streamState = {
   connected: false
 };
 
+const alertState = {
+  activeViolationKeys: new Set(),
+  activeViolationDetails: new Map()
+};
+
 /* =========================
    DOM REFERENCES
 ========================= */
@@ -102,6 +107,9 @@ const dom = {
 
   rulesTableBody: document.getElementById("rules-table-body"),
   eventLogList: document.getElementById("event-log-list"),
+  alertsJumpButton: document.getElementById("alerts-jump-btn"),
+  alertsSection: document.getElementById("alerts-event-stream"),
+  alertsEventCard: document.getElementById("alerts-event-card"),
   chartSensorSelect: document.getElementById("chart-sensor-select"),
 
   refreshButton: document.getElementById("refresh-dashboard-btn"),
@@ -219,8 +227,8 @@ function isRuleEnabled(rule) {
   return rule.enabled === true || rule.enabled === 1;
 }
 
-function doesSensorViolateRules(sensor) {
-  return appState.rules.some(rule => {
+function getSensorRuleViolations(sensor) {
+  return appState.rules.filter(rule => {
     if (!isRuleEnabled(rule)) return false;
 
     const sameSensor =
@@ -233,6 +241,60 @@ function doesSensorViolateRules(sensor) {
 
     return evaluateRule(sensor.value, rule.operator, rule.threshold);
   });
+}
+
+function doesSensorViolateRules(sensor) {
+  return getSensorRuleViolations(sensor).length > 0;
+}
+
+function buildViolationKey(sensor, rule) {
+  const ruleId = safeText(rule.id, "no-id");
+  return `${ruleId}|${safeText(sensor.sensor_id)}|${safeText(sensor.metric_name)}`;
+}
+
+function syncRuleViolationEvents() {
+  const currentViolations = new Map();
+
+  appState.latestSensors.forEach(sensor => {
+    const violatedRules = getSensorRuleViolations(sensor);
+
+    violatedRules.forEach(rule => {
+      const key = buildViolationKey(sensor, rule);
+
+      currentViolations.set(key, {
+        rule,
+        sensor,
+        value: safeText(sensor.value),
+        unit: safeText(sensor.unit, "")
+      });
+    });
+  });
+
+  currentViolations.forEach((details, key) => {
+    if (!alertState.activeViolationKeys.has(key)) {
+      const condition = `${safeText(details.rule.operator)} ${safeText(details.rule.threshold)}`;
+      const valueText = `${details.value}${details.unit ? ` ${details.unit}` : ""}`;
+
+      logEvent(
+        `Rule violated: ${safeText(details.sensor.sensor_id)}.${safeText(details.sensor.metric_name)} = ${valueText} (${condition})`,
+        "danger"
+      );
+    }
+  });
+
+  alertState.activeViolationKeys.forEach(key => {
+    if (!currentViolations.has(key)) {
+      const previous = alertState.activeViolationDetails.get(key);
+      const sensorLabel = previous
+        ? `${safeText(previous.sensor.sensor_id)}.${safeText(previous.sensor.metric_name)}`
+        : "sensor.metric";
+
+      logEvent(`Violation resolved: ${sensorLabel}`, "success");
+    }
+  });
+
+  alertState.activeViolationKeys = new Set(currentViolations.keys());
+  alertState.activeViolationDetails = currentViolations;
 }
 
 function statusClass(status) {
@@ -288,6 +350,30 @@ function showToast(title, message, type = "info") {
   toastElement.addEventListener("hidden.bs.toast", () => {
     toastElement.remove();
   });
+}
+
+function scrollToAlertsSection() {
+  if (!dom.alertsSection) return;
+
+  dom.alertsSection.scrollIntoView({
+    behavior: "smooth",
+    block: "center"
+  });
+}
+
+function highlightAlertsCard() {
+  if (!dom.alertsEventCard) return;
+
+  dom.alertsEventCard.classList.remove("alerts-card-highlight");
+
+  // Restart animation on repeated clicks.
+  void dom.alertsEventCard.offsetWidth;
+
+  dom.alertsEventCard.classList.add("alerts-card-highlight");
+
+  window.setTimeout(() => {
+    dom.alertsEventCard.classList.remove("alerts-card-highlight");
+  }, 1200);
 }
 
 async function apiFetch(url, options = {}) {
@@ -661,6 +747,7 @@ async function loadLatestState() {
 
     renderSensorCards();
     updateOverview();
+    syncRuleViolationEvents();
 
     logEvent("Sensor state updated", "info");
   } catch (error) {
@@ -687,6 +774,7 @@ async function loadRules() {
     renderRulesTable();
     renderSensorCards();
     updateOverview();
+    syncRuleViolationEvents();
 
     logEvent("Rules Updated", "info");
   } catch (error) {
@@ -742,6 +830,7 @@ function applyDashboardSnapshot(snapshot) {
   if (Array.isArray(snapshot.latest)) {
     appState.latestSensors = snapshot.latest;
     renderSensorCards();
+    syncRuleViolationEvents();
   }
 
   if (snapshot.actuators && typeof snapshot.actuators === "object") {
@@ -1076,6 +1165,14 @@ function bindStaticEvents() {
     await refreshDashboard();
     showToast("Refresh", "Dashboard refreshed", "info");
   });
+
+  if (dom.alertsJumpButton) {
+    dom.alertsJumpButton.addEventListener("click", event => {
+      event.preventDefault();
+      scrollToAlertsSection();
+      highlightAlertsCard();
+    });
+  }
 
   if (dom.resetRulesButton) {
     dom.resetRulesButton.addEventListener("click", async () => {
