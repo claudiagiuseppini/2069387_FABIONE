@@ -9,6 +9,7 @@ const API_CONFIG = {
   rules: `${API_BASE}/api/rules`,
   resetRules: `${API_BASE}/api/rules/reset`,
   actuators: `${API_BASE}/api/actuators`,
+  resetActuators: `${API_BASE}/api/actuators/reset`,
   events: `${API_BASE}/api/events`,
   health: `${API_BASE}/api/health`,
   dashboardStream: `${API_BASE}/api/stream/dashboard`
@@ -63,6 +64,7 @@ const dom = {
 
   refreshButton: document.getElementById("refresh-dashboard-btn"),
   resetRulesButton: document.getElementById("reset-rules-btn"),
+  resetActuatorsButton: document.getElementById("reset-actuators-btn"),
   toastContainer: document.getElementById("toast-container"),
 
   ruleForm: document.getElementById("rule-form"),
@@ -770,6 +772,34 @@ async function sendActuatorCommand(actuatorId, state) {
   }
 }
 
+async function resetActuatorsToDefault() {
+  try {
+    const response = await apiFetch(API_CONFIG.resetActuators, {
+      method: "POST"
+    });
+
+    const resetCount = Number(response?.reset_count || 0);
+
+    Object.keys(appState.actuators).forEach(actuatorId => {
+      appState.actuators[actuatorId] = "OFF";
+    });
+
+    renderActuators();
+    updateOverview();
+
+    showToast("Reset actuators", `${resetCount} attuatori impostati su OFF`, "warning");
+    logEvent(`Reset attuatori: ${resetCount} attuatori su OFF`, "warning");
+
+    await loadActuators();
+    return true;
+  } catch (error) {
+    console.error("Errore resetActuatorsToDefault:", error);
+    showToast("Errore", "Impossible to reset actuators to OFF", "danger");
+    logEvent("Errore reset attuatori", "danger");
+    return false;
+  }
+}
+
 /* =========================
    RULE ACTIONS
 ========================= */
@@ -966,6 +996,14 @@ function bindStaticEvents() {
       const confirmed = confirm("Ripristinare tutte le regole ai valori di default? Questa azione sovrascrive modifiche, aggiunte e cancellazioni.");
       if (!confirmed) return;
       await resetRulesToDefault();
+    });
+  }
+
+  if (dom.resetActuatorsButton) {
+    dom.resetActuatorsButton.addEventListener("click", async () => {
+      const confirmed = confirm("Impostare tutti gli attuatori a OFF (default)?");
+      if (!confirmed) return;
+      await resetActuatorsToDefault();
     });
   }
 

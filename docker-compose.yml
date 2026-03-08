@@ -30,7 +30,7 @@ services:
     networks:
       - iot-network
     healthcheck:
-      # Controlla che la porta STOMP sia aperta e accetti connessioni
+      # Check that the STOMP port is open and accepting connections
       test: ["CMD", "nc", "-z", "localhost", "61613"]
       interval: 10s
       timeout: 5s
@@ -89,7 +89,7 @@ services:
     networks:
       - iot-network
     healthcheck:
-      # Usiamo il client nativo per verificare che il server risponda
+      # Use the native client to verify that the server responds
       test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "user_mars", "-ppassword_mars"]
       interval: 10s
       timeout: 5s

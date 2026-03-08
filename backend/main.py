@@ -30,14 +30,17 @@ DB_CONF = {
 
 SIMULATOR_URL = "http://simulator:8080"
 DEFAULT_RULES_FILE = Path(__file__).with_name("default_rules.json")
-
-latest_state = {}
-event_log = []
-actuators_state = {
+DEFAULT_ACTUATORS = {
     "cooling_fan": "OFF",
     "entrance_humidifier": "OFF",
     "hall_ventilation": "OFF",
     "habitat_heater": "OFF"
+}
+
+latest_state = {}
+event_log = []
+actuators_state = {
+    **DEFAULT_ACTUATORS
 }
 
 state_lock = threading.Lock()
@@ -131,19 +134,19 @@ class BackendStompListener(stomp.ConnectionListener):
             data = json.loads(frame.body)
             sensor_id = data.get("sensor_id", "unknown")
             
-            # Recuperiamo la lista di metriche (ora al plurale 'metrics')
+            # Retrieve the list of metrics (now plural: 'metrics')
             metrics_list = data.get("metrics", [])
 
-            # Se il sensore invia più metriche (es. temp e umidità), 
-            # le salviamo singolarmente nel dizionario latest_state 
-            # così il frontend può visualizzarle separatamente.
+            # If the sensor sends multiple metrics (e.g., temp and humidity),
+            # store them individually in the latest_state dictionary
+            # so the frontend can display them separately.
             with state_lock:
                 for m_item in metrics_list:
                     metric_name = m_item.get("name", "unknown")
                     key = f"{sensor_id}.{metric_name}"
                     
-                    # Creiamo un "flat object" compatibile con il frontend 
-                    # che contiene i metadati del sensore e la singola metrica
+                    # Create a frontend-compatible "flat object"
+                    # containing sensor metadata and the individual metric
                     flat_data = {
                         "sensor_id": sensor_id,
                         "sensor_type": data.get("sensor_type"),
@@ -357,13 +360,57 @@ def get_events():
 def get_actuators():
     with actuator_lock:
         if not actuators_state:
-            return {
-                "cooling_fan": "OFF",
-                "entrance_humidifier": "OFF",
-                "hall_ventilation": "OFF",
-                "habitat_heater": "OFF"
-            }
+            return dict(DEFAULT_ACTUATORS)
         return actuators_state
+
+
+@app.post("/api/actuators/reset")
+def reset_all_actuators_to_default():
+    # Reset every known actuator to OFF on simulator and local cache.
+    with actuator_lock:
+        known_actuators = set(DEFAULT_ACTUATORS.keys()) | set(actuators_state.keys())
+
+    if not known_actuators:
+        known_actuators = set(DEFAULT_ACTUATORS.keys())
+
+    errors = []
+
+    for actuator_id in sorted(known_actuators):
+        try:
+            response = requests.post(
+                f"{SIMULATOR_URL}/api/actuators/{actuator_id}",
+                json={"state": "OFF"},
+                timeout=5
+            )
+
+            if response.status_code not in (200, 201):
+                errors.append(f"{actuator_id}: HTTP {response.status_code}")
+        except Exception as e:
+            errors.append(f"{actuator_id}: {e}")
+
+    with actuator_lock:
+        for actuator_id in known_actuators:
+            actuators_state[actuator_id] = "OFF"
+
+    if errors:
+        add_event(
+            f"Reset attuatori completato con errori ({len(errors)})",
+            "warning"
+        )
+        raise HTTPException(
+            status_code=502,
+            detail={
+                "message": "Reset attuatori parziale",
+                "errors": errors
+            }
+        )
+
+    add_event("Reset attuatori completato: tutti OFF", "warning")
+    return {
+        "ok": True,
+        "reset_count": len(known_actuators),
+        "state": "OFF"
+    }
 
 
 @app.post("/api/actuators/{actuator_id}")
