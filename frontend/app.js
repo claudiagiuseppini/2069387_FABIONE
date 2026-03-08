@@ -7,6 +7,7 @@ const API_BASE = "http://localhost:8000";
 const API_CONFIG = {
   latestState: `${API_BASE}/api/latest`,
   rules: `${API_BASE}/api/rules`,
+  resetRules: `${API_BASE}/api/rules/reset`,
   actuators: `${API_BASE}/api/actuators`,
   events: `${API_BASE}/api/events`,
   health: `${API_BASE}/api/health`,
@@ -24,6 +25,7 @@ const STREAM_CONFIG = {
 const appState = {
   latestSensors: [],
   rules: [],
+  editingRuleId: null,
   actuators: {
     cooling_fan: "OFF",
     entrance_humidifier: "OFF",
@@ -59,6 +61,7 @@ const dom = {
   chartSensorSelect: document.getElementById("chart-sensor-select"),
 
   refreshButton: document.getElementById("refresh-dashboard-btn"),
+  resetRulesButton: document.getElementById("reset-rules-btn"),
   toastContainer: document.getElementById("toast-container"),
 
   ruleForm: document.getElementById("rule-form"),
@@ -69,6 +72,12 @@ const dom = {
   actuatorNameInput: document.getElementById("actuator-name"),
   actionValueInput: document.getElementById("action-value"),
   ruleEnabledInput: document.getElementById("rule-enabled")
+};
+
+const ruleModalElements = {
+  modal: document.getElementById("ruleModal"),
+  title: document.getElementById("ruleModalLabel"),
+  submitButton: document.getElementById("rule-submit-btn")
 };
 
 /* =========================
@@ -374,7 +383,7 @@ function renderRulesTable() {
   if (!appState.rules.length) {
     dom.rulesTableBody.innerHTML = `
       <tr>
-        <td colspan="8" class="text-center text-secondary py-4">
+        <td colspan="7" class="text-center text-secondary py-4">
           Nessuna regola caricata
         </td>
       </tr>
@@ -386,7 +395,6 @@ function renderRulesTable() {
     const enabled = rule.enabled === true || rule.enabled === 1;
     return `
       <tr>
-        <td>${safeText(rule.id)}</td>
         <td>${safeText(rule.sensor_name)}</td>
         <td>${safeText(rule.metric_name)}</td>
         <td>
@@ -401,6 +409,9 @@ function renderRulesTable() {
           </span>
         </td>
         <td class="text-end">
+          <button class="btn btn-sm btn-outline-info me-1 edit-rule-btn" data-id="${rule.id}">
+            Edit
+          </button>
           <button class="btn btn-sm btn-outline-light me-1 toggle-rule-btn" data-id="${rule.id}" data-enabled="${enabled}">
             ${enabled ? "Disable" : "Enable"}
           </button>
@@ -693,10 +704,32 @@ async function createRule(payload) {
     logEvent(`New rule created on ${payload.sensor_name}.${payload.metric_name}`, "success");
 
     await loadRules();
+    return true;
   } catch (error) {
     console.error("Errore createRule:", error);
     showToast("Errore", "Impossible to create rule", "danger");
     logEvent("Error in creating rule", "danger");
+    return false;
+  }
+}
+
+async function updateRule(ruleId, payload) {
+  try {
+    await apiFetch(`${API_CONFIG.rules}/${ruleId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload)
+    });
+
+    showToast("Rule updated", `Rule ${ruleId} updated correctly`, "success");
+    logEvent(`Rule ${ruleId} edited`, "warning");
+
+    await loadRules();
+    return true;
+  } catch (error) {
+    console.error("Errore updateRule:", error);
+    showToast("Errore", `Impossible to update rule ${ruleId}`, "danger");
+    logEvent(`Error updating rule ${ruleId}`, "danger");
+    return false;
   }
 }
 
@@ -735,6 +768,27 @@ async function deleteRule(ruleId) {
   }
 }
 
+async function resetRulesToDefault() {
+  try {
+    const response = await apiFetch(API_CONFIG.resetRules, {
+      method: "POST"
+    });
+
+    const resetCount = Number(response?.reset_count || 0);
+
+    showToast("Rules reset", `Ripristinate ${resetCount} regole di default`, "warning");
+    logEvent(`Regole ripristinate ai default (${resetCount})`, "warning");
+
+    await loadRules();
+    return true;
+  } catch (error) {
+    console.error("Errore resetRulesToDefault:", error);
+    showToast("Errore", "Impossible to reset default rules", "danger");
+    logEvent("Error resetting rules", "danger");
+    return false;
+  }
+}
+
 /* =========================
    FORM HANDLING
 ========================= */
@@ -751,9 +805,43 @@ function getRuleFormPayload() {
   };
 }
 
+function setRuleFormModeEditing(rule) {
+  appState.editingRuleId = rule.id;
+
+  dom.sensorNameInput.value = safeText(rule.sensor_name, "");
+  dom.metricNameInput.value = safeText(rule.metric_name, "");
+  dom.ruleOperatorInput.value = rule.operator === "==" ? "=" : safeText(rule.operator, ">");
+  dom.ruleThresholdInput.value = safeText(rule.threshold, "");
+  dom.actuatorNameInput.value = safeText(rule.actuator_name, "cooling_fan");
+  dom.actionValueInput.value = safeText(rule.action_value, "OFF");
+  dom.ruleEnabledInput.checked = isRuleEnabled(rule);
+
+  ruleModalElements.title.textContent = `Edit Automation Rule #${rule.id}`;
+  ruleModalElements.submitButton.textContent = "Update Rule";
+}
+
+function openEditRuleModal(ruleId) {
+  const rule = appState.rules.find(item => String(item.id) === String(ruleId));
+  if (!rule) {
+    showToast("Errore", `Rule ${ruleId} not found`, "danger");
+    return;
+  }
+
+  setRuleFormModeEditing(rule);
+  const modal = bootstrap.Modal.getOrCreateInstance(ruleModalElements.modal);
+  modal.show();
+}
+
+function setRuleFormModeCreate() {
+  appState.editingRuleId = null;
+  ruleModalElements.title.textContent = "Create Automation Rule";
+  ruleModalElements.submitButton.textContent = "Save Rule";
+}
+
 function resetRuleForm() {
   dom.ruleForm.reset();
   dom.ruleEnabledInput.checked = true;
+  setRuleFormModeCreate();
 }
 
 async function handleRuleSubmit(event) {
@@ -766,10 +854,15 @@ async function handleRuleSubmit(event) {
     return;
   }
 
-  await createRule(payload);
+  const submitOk = appState.editingRuleId === null
+    ? await createRule(payload)
+    : await updateRule(appState.editingRuleId, payload);
 
-  const modalElement = document.getElementById("ruleModal");
-  const modalInstance = bootstrap.Modal.getInstance(modalElement);
+  if (!submitOk) {
+    return;
+  }
+
+  const modalInstance = bootstrap.Modal.getInstance(ruleModalElements.modal);
   if (modalInstance) {
     modalInstance.hide();
   }
@@ -787,7 +880,26 @@ function bindStaticEvents() {
     showToast("Refresh", "Dashboard refreshed", "info");
   });
 
+  if (dom.resetRulesButton) {
+    dom.resetRulesButton.addEventListener("click", async () => {
+      const confirmed = confirm("Ripristinare tutte le regole ai valori di default? Questa azione sovrascrive modifiche, aggiunte e cancellazioni.");
+      if (!confirmed) return;
+      await resetRulesToDefault();
+    });
+  }
+
   dom.ruleForm.addEventListener("submit", handleRuleSubmit);
+
+  ruleModalElements.modal.addEventListener("hidden.bs.modal", () => {
+    resetRuleForm();
+  });
+
+  ruleModalElements.modal.addEventListener("show.bs.modal", event => {
+    const opener = event.relatedTarget;
+    if (opener && opener.hasAttribute("data-create-rule")) {
+      resetRuleForm();
+    }
+  });
 
  document.querySelectorAll(".actuator-toggle-btn").forEach(button => {
   button.addEventListener("click", () => {
@@ -800,6 +912,12 @@ function bindStaticEvents() {
 });
 
   document.addEventListener("click", async event => {
+    const editBtn = event.target.closest(".edit-rule-btn");
+    if (editBtn) {
+      openEditRuleModal(editBtn.dataset.id);
+      return;
+    }
+
     const toggleBtn = event.target.closest(".toggle-rule-btn");
     if (toggleBtn) {
       const ruleId = toggleBtn.dataset.id;
