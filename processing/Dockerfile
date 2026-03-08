@@ -7,7 +7,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia del codice
-COPY main.py .
+COPY . .
 
 # Comando di avvio
 CMD ["python", "main.py"]
