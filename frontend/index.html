@@ -166,12 +166,18 @@
             <div class="d-flex flex-column gap-3" id="actuators-container">
 
               <div class="actuator-item p-3 rounded border border-secondary">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <div>
-                    <h6 class="mb-0">Cooling Fan</h6>
-                    <small class="text-secondary">cooling_fan</small>
-                  </div>
+               <div class="d-flex justify-content-between align-items-center mb-2">
+
+                 <div>
+                  <h6 class="mb-0">Cooling Fan</h6>
+                  <small class="text-secondary">cooling_fan</small>
                 </div>
+
+                <span class="actuator-icon actuator-icon-off actuator-icon-fan actuator-icon-large" data-actuator-icon="cooling_fan">
+                  <i class="bi bi-fan"></i>
+                </span>
+
+              </div>
 
                 <div class="d-flex gap-2">
                   <button class="btn btn-sm actuator-toggle-btn actuator-off" data-actuator="cooling_fan">
@@ -181,12 +187,19 @@
               </div>
 
               <div class="actuator-item p-3 rounded border border-secondary">
-                <div class="d-flex justify-content-between align-items-center mb-2">
-                  <div>
-                    <h6 class="mb-0">Entrance Humidifier</h6>
-                    <small class="text-secondary">entrance_humidifier</small>
+                  <div class="d-flex justify-content-between align-items-center mb-2">
+
+                    <div>
+                      <h6 class="mb-0">Entrance Humidifier</h6>
+                      <small class="text-secondary">entrance_humidifier</small>
+                    </div>
+
+                    <span class="actuator-icon actuator-icon-off actuator-icon-humidifier actuator-icon-large"
+                        data-actuator-icon="entrance_humidifier">
+                      <i class="bi bi-droplet-fill"></i>
+                    </span>
+
                   </div>
-                </div>
 
                 <div class="d-flex gap-2">
                   <button class="btn btn-sm actuator-toggle-btn actuator-off" data-actuator="entrance_humidifier">
@@ -197,10 +210,17 @@
 
               <div class="actuator-item p-3 rounded border border-secondary">
                 <div class="d-flex justify-content-between align-items-center mb-2">
+
                   <div>
                     <h6 class="mb-0">Hall Ventilation</h6>
                     <small class="text-secondary">hall_ventilation</small>
                   </div>
+
+                  <span class="actuator-icon actuator-icon-off actuator-icon-ventilation actuator-icon-large"
+                      data-actuator-icon="hall_ventilation">
+                    <i class="bi bi-wind"></i>
+                  </span>
+
                 </div>
 
                 <div class="d-flex gap-2">
@@ -212,11 +232,18 @@
 
               <div class="actuator-item p-3 rounded border border-secondary">
                 <div class="d-flex justify-content-between align-items-center mb-2">
-                  <div>
-                    <h6 class="mb-0">Habitat Heater</h6>
-                    <small class="text-secondary">habitat_heater</small>
-                  </div>
+
+                <div>
+                  <h6 class="mb-0">Habitat Heater</h6>
+                  <small class="text-secondary">habitat_heater</small>
                 </div>
+
+                <span class="actuator-icon actuator-icon-off actuator-icon-heater actuator-icon-large"
+                      data-actuator-icon="habitat_heater">
+                  <i class="bi bi-fire"></i>
+                </span>
+
+              </div>
 
                 <div class="d-flex gap-2">
                   <button class="btn btn-sm actuator-toggle-btn actuator-off" data-actuator="habitat_heater">

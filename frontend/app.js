@@ -782,10 +782,16 @@ function renderActuators() {
 
     const actuatorId = toggleButton.dataset.actuator;
     const state = (appState.actuators[actuatorId] || "OFF").toUpperCase();
+    const icon = item.querySelector(`[data-actuator-icon="${actuatorId}"]`);
 
     toggleButton.textContent = state;
     toggleButton.classList.remove("actuator-on", "actuator-off");
     toggleButton.classList.add(state === "ON" ? "actuator-on" : "actuator-off");
+
+    if (icon) {
+      icon.classList.remove("actuator-icon-on", "actuator-icon-off");
+      icon.classList.add(state === "ON" ? "actuator-icon-on" : "actuator-icon-off");
+    }
   });
 }
 
