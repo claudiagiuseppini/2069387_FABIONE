@@ -1,4 +1,5 @@
 import json
+import asyncio
 import time
 import threading
 from contextlib import asynccontextmanager
@@ -9,6 +10,7 @@ import stomp
 import mysql.connector
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 BROKER_CONF = {
@@ -171,6 +173,9 @@ def poll_actuators():
                             state = item.get("state") or item.get("last_state") or "OFF"
                             if actuator_id:
                                 discovered[actuator_id] = state
+                    elif "actuators" in payload and isinstance(payload["actuators"], dict):
+                        for actuator_id, state in payload["actuators"].items():
+                            discovered[actuator_id] = state
                     else:
                         for k, v in payload.items():
                             if isinstance(v, dict):
@@ -185,6 +190,29 @@ def poll_actuators():
             print(f"⚠️ Poll actuators error: {e}", flush=True)
 
         time.sleep(5)
+
+
+def build_dashboard_snapshot():
+    with state_lock:
+        latest = list(latest_state.values())
+
+    with actuator_lock:
+        actuators = dict(actuators_state)
+
+    health_payload = {
+        "status": True,
+        "broker_connected": stomp_conn.is_connected(),
+        "cached_metrics": len(latest),
+        "cached_events": len(event_log),
+        "known_actuators": len(actuators)
+    }
+
+    return {
+        "latest": latest,
+        "actuators": actuators,
+        "health": health_payload,
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
+    }
 
 
 @asynccontextmanager
@@ -224,6 +252,44 @@ def health():
         "cached_events": len(event_log),
         "known_actuators": len(actuators_state)
     }
+
+
+@app.get("/api/stream/dashboard")
+async def stream_dashboard():
+    async def event_generator():
+        last_payload = ""
+        heartbeat_seconds = 15
+        elapsed = 0
+
+        # SSE reconnect hint for clients.
+        yield "retry: 5000\n\n"
+
+        while True:
+            snapshot = build_dashboard_snapshot()
+            payload = json.dumps(snapshot, ensure_ascii=True, sort_keys=True)
+
+            if payload != last_payload:
+                last_payload = payload
+                elapsed = 0
+                yield f"data: {payload}\n\n"
+            else:
+                elapsed += 1
+                if elapsed >= heartbeat_seconds:
+                    elapsed = 0
+                    # Keepalive comment to avoid intermediaries closing idle streams.
+                    yield ": ping\n\n"
+
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no"
+        }
+    )
 
 
 @app.get("/api/latest")
