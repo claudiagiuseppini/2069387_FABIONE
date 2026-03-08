@@ -30,7 +30,8 @@ const appState = {
     hall_ventilation: "OFF",
     habitat_heater: "OFF"
   },
-  eventLog: []
+  eventLog: [],
+  openSensorGroups: new Set()
 };
 
 const streamState = {
@@ -88,7 +89,6 @@ function parseTimestamp(timestamp) {
     return null;
   }
 
-  // Caso numero unix timestamp
   if (typeof timestamp === "number") {
     const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
     const date = new Date(ms);
@@ -97,7 +97,6 @@ function parseTimestamp(timestamp) {
 
   const str = String(timestamp).trim();
 
-  // Caso stringa numerica
   if (/^\d+$/.test(str)) {
     const numeric = Number(str);
     const ms = numeric < 1e12 ? numeric * 1000 : numeric;
@@ -106,8 +105,8 @@ function parseTimestamp(timestamp) {
   }
 
   const normalized = str.replace(/\.(\d{3})\d+/, ".$1");
-
   const date = new Date(normalized);
+
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
@@ -189,14 +188,8 @@ function statusClass(status) {
   if (normalized.includes("ok") || normalized.includes("on")) return "status-ok";
   if (normalized.includes("warn")) return "status-warning";
   if (normalized.includes("error") || normalized.includes("fail") || normalized.includes("off")) return "status-error";
-  return "status-unknown";
-}
 
-function actuatorBadgeClass(state) {
-  const normalized = String(state || "").toUpperCase();
-  if (normalized === "ON") return "text-bg-success";
-  if (normalized === "OFF") return "text-bg-danger";
-  return "text-bg-secondary";
+  return "status-unknown";
 }
 
 function logEvent(message, type = "info") {
@@ -266,25 +259,104 @@ async function apiFetch(url, options = {}) {
   return response.text();
 }
 
+function groupSensorsBySource(sensors) {
+  const groups = new Map();
+
+  sensors.forEach(sensor => {
+    const key = safeText(sensor.sensor_id, "unknown_sensor");
+
+    if (!groups.has(key)) {
+      groups.set(key, {
+        sensorId: key,
+        sensorType: safeText(sensor.sensor_type, "unknown"),
+        metrics: []
+      });
+    }
+
+    groups.get(key).metrics.push(sensor);
+  });
+
+  return Array.from(groups.values()).sort((a, b) =>
+    a.sensorId.localeCompare(b.sensorId)
+  );
+}
+
+function sanitizeGroupKey(value) {
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+function buildMetricRow(sensor) {
+  const value = safeText(sensor.value);
+  const unit = safeText(sensor.unit, "");
+  const metricName = safeText(sensor.metric_name);
+  const status = safeText(sensor.status, "unknown");
+  const source = safeText(sensor.source, "n/a");
+  const timestamp = formatRelativeTime(sensor.timestamp);
+  const isAlert = doesSensorViolateRules(sensor);
+
+  return `
+    <div class="metric-row ${isAlert ? "metric-row-alert" : ""}">
+      <div class="metric-row-main">
+        <div class="metric-row-name">
+          ${metricName}
+          ${unit ? `<span class="metric-row-unit">${unit}</span>` : ""}
+        </div>
+        <div class="metric-row-value">${value}</div>
+      </div>
+
+      <div class="metric-row-meta">
+        <span class="sensor-status ${statusClass(status)}">${status}</span>
+        <span><strong>Source:</strong> ${source}</span>
+        <span><strong>Updated:</strong> ${timestamp}</span>
+        ${isAlert ? `<span class="metric-row-rule-alert">Rule violated</span>` : ""}
+      </div>
+    </div>
+  `;
+}
+
+function bindSensorGroupToggles() {
+  const toggles = dom.sensorCardsContainer.querySelectorAll(".sensor-group-toggle");
+
+  toggles.forEach(toggle => {
+    toggle.addEventListener("click", () => {
+      const groupName = toggle.dataset.sensorGroup;
+      const details = toggle.nextElementSibling;
+
+      if (!groupName || !details) return;
+
+      const isOpen = appState.openSensorGroups.has(groupName);
+
+      if (isOpen) {
+        appState.openSensorGroups.delete(groupName);
+        toggle.classList.add("collapsed");
+        toggle.setAttribute("aria-expanded", "false");
+        details.classList.remove("open");
+      } else {
+        appState.openSensorGroups.add(groupName);
+        toggle.classList.remove("collapsed");
+        toggle.setAttribute("aria-expanded", "true");
+        details.classList.add("open");
+      }
+    });
+  });
+}
+
 /* =========================
    RENDER - OVERVIEW
 ========================= */
 
 function updateOverview() {
-
   const uniqueSensorIds = new Set(appState.latestSensors.map(s => s.sensor_id));
   dom.activeSensorsCount.textContent = uniqueSensorIds.size;
 
-  dom.sensorCardsBadge.textContent = `${appState.latestSensors.length} metrics`;
-  
+  dom.sensorCardsBadge.textContent = `${uniqueSensorIds.size} categories · ${appState.latestSensors.length} metrics`;
+
   const telemetryCount = appState.latestSensors.filter(
     item => String(item.sensor_type || "").toLowerCase().includes("tele")
   ).length;
   dom.liveTelemetryCount.textContent = telemetryCount;
 
-  const enabledRules = appState.rules.filter(
-    rule => rule.enabled === true || rule.enabled === 1
-  ).length;
+  const enabledRules = appState.rules.filter(isRuleEnabled).length;
   dom.activeRulesCount.textContent = enabledRules;
 
   const actuatorsOn = Object.values(appState.actuators).filter(
@@ -312,37 +384,42 @@ function renderSensorCards() {
     return;
   }
 
-  const html = appState.latestSensors.map(sensor => {
-    const value = safeText(sensor.value);
-    const unit = safeText(sensor.unit, "");
-    const metricName = safeText(sensor.metric_name);
-    const status = safeText(sensor.status, "ok");
-    const source = safeText(sensor.source, sensor.sensor_id);
-    const timestamp = formatRelativeTime(sensor.timestamp);
-    const isAlert = doesSensorViolateRules(sensor);
+  const groupedSensors = groupSensorsBySource(appState.latestSensors);
+
+  const html = groupedSensors.map(group => {
+    const groupKey = sanitizeGroupKey(group.sensorId);
+    const collapseId = `sensor-group-${groupKey}`;
+    const isOpen = appState.openSensorGroups.has(group.sensorId);
+    const metricsCount = group.metrics.length;
 
     return `
-      <div class="col-12 col-md-6 col-xl-4">
-        <div class="sensor-card ${isAlert ? "sensor-alert" : ""}">
-          <div class="sensor-title">${safeText(sensor.sensor_id)}</div>
-          <div class="sensor-subtitle">
-            ${metricName} · ${safeText(sensor.sensor_type)}
-          </div>
+      <div class="col-12">
+        <div class="sensor-card sensor-group-card">
+          <button
+            class="sensor-group-toggle ${isOpen ? "" : "collapsed"}"
+            type="button"
+            data-sensor-group="${group.sensorId}"
+            aria-expanded="${isOpen ? "true" : "false"}"
+            aria-controls="${collapseId}"
+          >
+            <div class="sensor-group-header">
+              <div>
+                <div class="sensor-title mb-1">${group.sensorId}</div>
+                <div class="sensor-subtitle mb-0">
+                  ${group.sensorType} · ${metricsCount} metric${metricsCount !== 1 ? "s" : ""}
+                </div>
+              </div>
 
-          <div class="d-flex align-items-end gap-1 mb-2">
-            <span class="sensor-value">${value}</span>
-            <span class="sensor-unit">${unit}</span>
-          </div>
+              <div class="sensor-group-chevron">
+                <i class="bi bi-chevron-down"></i>
+              </div>
+            </div>
+          </button>
 
-          <span class="sensor-status ${statusClass(status)}">
-            ${status}
-          </span>
-
-          ${isAlert ? `<div class="sensor-rule-alert">Rule violated</div>` : ""}
-
-          <div class="sensor-meta">
-            <div><strong>Source:</strong> ${source}</div>
-            <div><strong>Updated:</strong> ${timestamp}</div>
+          <div id="${collapseId}" class="sensor-group-details ${isOpen ? "open" : ""}">
+            <div class="sensor-group-metrics">
+              ${group.metrics.map(buildMetricRow).join("")}
+            </div>
           </div>
         </div>
       </div>
@@ -350,6 +427,7 @@ function renderSensorCards() {
   }).join("");
 
   dom.sensorCardsContainer.innerHTML = html;
+  bindSensorGroupToggles();
   populateChartSelect(appState.latestSensors);
 }
 
@@ -383,7 +461,8 @@ function renderRulesTable() {
   }
 
   const html = appState.rules.map(rule => {
-    const enabled = rule.enabled === true || rule.enabled === 1;
+    const enabled = isRuleEnabled(rule);
+
     return `
       <tr>
         <td>${safeText(rule.id)}</td>
@@ -456,7 +535,6 @@ function renderActuators() {
     const state = (appState.actuators[actuatorId] || "OFF").toUpperCase();
 
     toggleButton.textContent = state;
-
     toggleButton.classList.remove("actuator-on", "actuator-off");
     toggleButton.classList.add(state === "ON" ? "actuator-on" : "actuator-off");
   });
@@ -470,9 +548,6 @@ async function loadLatestState() {
   try {
     const data = await apiFetch(API_CONFIG.latestState);
 
-    // Supporta due casi:
-    // 1. array diretto
-    // 2. oggetto con proprietà items/latest/data
     if (Array.isArray(data)) {
       appState.latestSensors = data;
     } else if (Array.isArray(data.items)) {
@@ -511,6 +586,7 @@ async function loadRules() {
     }
 
     renderRulesTable();
+    renderSensorCards();
     updateOverview();
 
     logEvent("Rules Updated", "info");
@@ -528,6 +604,30 @@ async function loadHealth() {
   } catch (error) {
     dom.systemStatusBadge.textContent = "System Offline";
     dom.systemStatusBadge.className = "badge rounded-pill text-bg-danger";
+  }
+}
+
+async function loadActuators() {
+  try {
+    const data = await apiFetch(API_CONFIG.actuators);
+
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      appState.actuators = {
+        ...appState.actuators,
+        ...Object.fromEntries(
+          Object.entries(data).map(([key, value]) => [
+            key,
+            String(value || "OFF").toUpperCase()
+          ])
+        )
+      };
+    }
+
+    renderActuators();
+    updateOverview();
+  } catch (error) {
+    console.error("Errore loadActuators:", error);
+    logEvent("Errore caricamento attuatori", "danger");
   }
 }
 
@@ -565,6 +665,10 @@ function applyDashboardSnapshot(snapshot) {
   updateOverview();
 }
 
+/* =========================
+   STREAM
+========================= */
+
 function stopFallbackPolling() {
   if (streamState.fallbackTimer) {
     clearInterval(streamState.fallbackTimer);
@@ -587,6 +691,7 @@ function closeDashboardStream() {
     streamState.source.close();
     streamState.source = null;
   }
+
   streamState.connected = false;
 }
 
@@ -626,32 +731,8 @@ function startDashboardStream() {
       streamState.connected = false;
     }
 
-    // EventSource gestisce automaticamente la riconnessione.
+    startFallbackPolling();
   };
-}
-
-async function loadActuators() {
-  try {
-    const data = await apiFetch(API_CONFIG.actuators);
-
-    if (data && typeof data === "object" && !Array.isArray(data)) {
-      appState.actuators = {
-        ...appState.actuators,
-        ...Object.fromEntries(
-          Object.entries(data).map(([key, value]) => [
-            key,
-            String(value || "OFF").toUpperCase()
-          ])
-        )
-      };
-    }
-
-    renderActuators();
-    updateOverview();
-  } catch (error) {
-    console.error("Errore loadActuators:", error);
-    logEvent("Errore caricamento attuatori", "danger");
-  }
 }
 
 /* =========================
@@ -674,7 +755,7 @@ async function sendActuatorCommand(actuatorId, state) {
   } catch (error) {
     console.error("Errore sendActuatorCommand:", error);
     showToast("Errore", `Impossible to load ${actuatorId}`, "danger");
-    logEvent(`Error command actuator${actuatorId}`, "danger");
+    logEvent(`Error command actuator ${actuatorId}`, "danger");
   }
 }
 
@@ -789,15 +870,15 @@ function bindStaticEvents() {
 
   dom.ruleForm.addEventListener("submit", handleRuleSubmit);
 
- document.querySelectorAll(".actuator-toggle-btn").forEach(button => {
-  button.addEventListener("click", () => {
-    const actuatorId = button.dataset.actuator;
-    const currentState = (appState.actuators[actuatorId] || "OFF").toUpperCase();
-    const newState = currentState === "ON" ? "OFF" : "ON";
+  document.querySelectorAll(".actuator-toggle-btn").forEach(button => {
+    button.addEventListener("click", () => {
+      const actuatorId = button.dataset.actuator;
+      const currentState = (appState.actuators[actuatorId] || "OFF").toUpperCase();
+      const newState = currentState === "ON" ? "OFF" : "ON";
 
-    sendActuatorCommand(actuatorId, newState);
+      sendActuatorCommand(actuatorId, newState);
+    });
   });
-});
 
   document.addEventListener("click", async event => {
     const toggleBtn = event.target.closest(".toggle-rule-btn");

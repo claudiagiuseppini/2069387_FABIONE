@@ -5,24 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Mars Habitat Dashboard</title>
 
-  <!-- Bootstrap -->
   <link
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css"
     rel="stylesheet"
   />
 
-  <!-- Bootstrap Icons -->
   <link
     rel="stylesheet"
     href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css"
   />
 
-  <!-- CSS custom -->
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="bg-dark text-light">
 
-  <!-- NAVBAR -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-black border-bottom border-secondary sticky-top">
     <div class="container-fluid px-4">
       <a class="navbar-brand fw-bold d-flex align-items-center gap-2" href="#">
@@ -43,13 +39,12 @@
 
   <main class="container-fluid py-4 px-4">
 
-    <!-- HEADER -->
     <section class="mb-4">
       <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3">
         <div>
           <h1 class="h3 mb-1">Habitat Monitoring Dashboard</h1>
           <p class="text-secondary mb-0">
-            Real-time monitoring of sensors, telemetries, actuators and automation rules. 
+            Real-time monitoring of sensors, telemetries, actuators and automation rules.
           </p>
         </div>
 
@@ -64,7 +59,6 @@
       </div>
     </section>
 
-    <!-- OVERVIEW CARDS -->
     <section class="row g-3 mb-4">
       <div class="col-12 col-sm-6 col-xl-3">
         <div class="card bg-black border-secondary shadow-sm h-100 dashboard-card">
@@ -123,15 +117,13 @@
       </div>
     </section>
 
-    <!-- SENSORI + ATTUATORI -->
     <section class="row g-4 mb-4">
-      <!-- SENSORI -->
       <div class="col-12 col-xl-8">
         <div class="card bg-black border-secondary shadow-sm h-100">
           <div class="card-header border-secondary d-flex justify-content-between align-items-center">
             <div>
               <h2 class="h5 mb-0 text-white">Latest Sensor State</h2>
-              <small class="text-secondary">Last available data for each sensor/metric</small>
+              <small class="text-secondary">Grouped by sensor category. Click a card to show details.</small>
             </div>
             <span class="badge text-bg-dark border border-secondary" id="sensor-cards-badge">
               0 items
@@ -140,7 +132,6 @@
 
           <div class="card-body">
             <div class="row g-3" id="sensor-cards-container">
-              <!-- Card sensori generate via JS -->
               <div class="col-12">
                 <div class="placeholder-box text-center text-secondary py-5 rounded border border-secondary-subtle">
                   No data available
@@ -151,12 +142,11 @@
         </div>
       </div>
 
-      <!-- ATTUATORI -->
       <div class="col-12 col-xl-4">
         <div class="card bg-black border-secondary shadow-sm h-100">
           <div class="card-header border-secondary">
             <h2 class="h5 mb-0 text-white">Actuators</h2>
-            <small class="text-secondary"> Real-time state and manual control </small>
+            <small class="text-secondary">Real-time state and manual control</small>
           </div>
 
           <div class="card-body">
@@ -228,7 +218,6 @@
       </div>
     </section>
 
-    <!-- GRAFICI / VISUAL -->
     <section class="row g-4 mb-4">
       <div class="col-12 col-lg-8">
         <div class="card bg-black border-secondary shadow-sm h-100">
@@ -269,13 +258,12 @@
       </div>
     </section>
 
-    <!-- RULES TABLE -->
     <section class="mb-4">
       <div class="card bg-black border-secondary shadow-sm">
         <div class="card-header border-secondary d-flex justify-content-between align-items-center">
           <div>
             <h2 class="h5 mb-0 text-white">Automation Rules</h2>
-            <small class="text-secondary">Creation, Visualization and rule management  </small>
+            <small class="text-secondary">Creation, visualization and rule management</small>
           </div>
           <button class="btn btn-sm btn-info text-dark fw-semibold" data-bs-toggle="modal" data-bs-target="#ruleModal">
             <i class="bi bi-plus-circle me-1"></i> Add Rule
@@ -312,7 +300,6 @@
 
   </main>
 
-  <!-- MODAL NUOVA REGOLA -->
   <div class="modal fade" id="ruleModal" tabindex="-1" aria-labelledby="ruleModalLabel" aria-hidden="true">
     <div class="modal-dialog modal-lg modal-dialog-centered">
       <div class="modal-content bg-dark text-light border-secondary">
@@ -386,17 +373,9 @@
     </div>
   </div>
 
-  <!-- TOAST CONTAINER -->
-  <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toast-container">
-    <!-- Toast dinamici via JS -->
-  </div>
+  <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toast-container"></div>
 
-  <!-- Bootstrap JS -->
-  <script
-    src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js">
-  </script>
-
-  <!-- JS custom -->
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
