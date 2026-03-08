@@ -55,7 +55,6 @@ const dom = {
   metricNameInput: document.getElementById("metric-name"),
   ruleOperatorInput: document.getElementById("rule-operator"),
   ruleThresholdInput: document.getElementById("rule-threshold"),
-  ruleUnitInput: document.getElementById("rule-unit"),
   actuatorNameInput: document.getElementById("actuator-name"),
   actionValueInput: document.getElementById("action-value"),
   ruleEnabledInput: document.getElementById("rule-enabled")
@@ -71,6 +70,106 @@ function nowLabel() {
 
 function safeText(value, fallback = "--") {
   return value === null || value === undefined || value === "" ? fallback : value;
+}
+
+function parseTimestamp(timestamp) {
+  if (timestamp === null || timestamp === undefined || timestamp === "") {
+    return null;
+  }
+
+  // Caso numero unix timestamp
+  if (typeof timestamp === "number") {
+    const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const str = String(timestamp).trim();
+
+  // Caso stringa numerica
+  if (/^\d+$/.test(str)) {
+    const numeric = Number(str);
+    const ms = numeric < 1e12 ? numeric * 1000 : numeric;
+    const date = new Date(ms);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  const normalized = str.replace(/\.(\d{3})\d+/, ".$1");
+
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+function formatRelativeTime(timestamp) {
+  const date = parseTimestamp(timestamp);
+  if (!date) return "--";
+
+  let diffSeconds = Math.floor((Date.now() - date.getTime()) / 1000);
+
+  if (diffSeconds < 0) diffSeconds = 0;
+
+  const hours = Math.floor(diffSeconds / 3600);
+  const minutes = Math.floor((diffSeconds % 3600) / 60);
+  const seconds = diffSeconds % 60;
+
+  const mm = String(minutes).padStart(2, "0");
+  const ss = String(seconds).padStart(2, "0");
+
+  if (hours > 0) {
+    const hh = String(hours).padStart(2, "0");
+    return `${hh}:${mm}:${ss} ago`;
+  }
+
+  return `${mm}:${ss} ago`;
+}
+
+function normalizeOperator(operator) {
+  if (operator === "=") return "==";
+  return operator;
+}
+
+function evaluateRule(value, operator, threshold) {
+  const numericValue = Number(value);
+  const numericThreshold = Number(threshold);
+
+  if (Number.isNaN(numericValue) || Number.isNaN(numericThreshold)) {
+    return false;
+  }
+
+  switch (normalizeOperator(operator)) {
+    case ">":
+      return numericValue > numericThreshold;
+    case "<":
+      return numericValue < numericThreshold;
+    case ">=":
+      return numericValue >= numericThreshold;
+    case "<=":
+      return numericValue <= numericThreshold;
+    case "==":
+      return numericValue === numericThreshold;
+    default:
+      return false;
+  }
+}
+
+function isRuleEnabled(rule) {
+  return rule.enabled === true || rule.enabled === 1;
+}
+
+function doesSensorViolateRules(sensor) {
+  return appState.rules.some(rule => {
+    if (!isRuleEnabled(rule)) return false;
+
+    const sameSensor =
+      String(rule.sensor_name || "").trim() === String(sensor.sensor_id || "").trim();
+
+    const sameMetric =
+      String(rule.metric_name || "").trim() === String(sensor.metric_name || "").trim();
+
+    if (!sameSensor || !sameMetric) return false;
+
+    return evaluateRule(sensor.value, rule.operator, rule.threshold);
+  });
 }
 
 function statusClass(status) {
@@ -208,11 +307,12 @@ function renderSensorCards() {
     const metricName = safeText(sensor.metric_name);
     const status = safeText(sensor.status, "unknown");
     const source = safeText(sensor.source, "n/a");
-    const timestamp = safeText(sensor.timestamp, "--");
+    const timestamp = formatRelativeTime(sensor.timestamp);
+    const isAlert = doesSensorViolateRules(sensor);
 
     return `
       <div class="col-12 col-md-6 col-xl-4">
-        <div class="sensor-card">
+        <div class="sensor-card ${isAlert ? "sensor-alert" : ""}">
           <div class="sensor-title">${safeText(sensor.sensor_id)}</div>
           <div class="sensor-subtitle">
             ${metricName} · ${safeText(sensor.sensor_type)}
@@ -227,9 +327,11 @@ function renderSensorCards() {
             ${status}
           </span>
 
+          ${isAlert ? `<div class="sensor-rule-alert">Rule violated</div>` : ""}
+
           <div class="sensor-meta">
             <div><strong>Source:</strong> ${source}</div>
-            <div><strong>Timestamp:</strong> ${timestamp}</div>
+            <div><strong>Updated:</strong> ${timestamp}</div>
           </div>
         </div>
       </div>
@@ -375,11 +477,11 @@ async function loadLatestState() {
     renderSensorCards();
     updateOverview();
 
-    logEvent("Stato sensori aggiornato", "info");
+    logEvent("Sensor state updated", "info");
   } catch (error) {
     console.error("Errore loadLatestState:", error);
-    showToast("Errore", "Impossibile caricare lo stato sensori", "danger");
-    logEvent("Errore caricamento sensori", "danger");
+    showToast("Errore", "Impossible to load sensor states", "danger");
+    logEvent("Error loading sensors", "danger");
   }
 }
 
@@ -400,11 +502,11 @@ async function loadRules() {
     renderRulesTable();
     updateOverview();
 
-    logEvent("Regole aggiornate", "info");
+    logEvent("Rules Updated", "info");
   } catch (error) {
     console.error("Errore loadRules:", error);
-    showToast("Errore", "Impossibile caricare le regole", "danger");
-    logEvent("Errore caricamento regole", "danger");
+    showToast("Errore", "Impossible to load the rules", "danger");
+    logEvent("Error loading rules", "danger");
   }
 }
 
@@ -438,12 +540,12 @@ async function sendActuatorCommand(actuatorId, state) {
     renderActuators();
     updateOverview();
 
-    showToast("Attuatore", `${actuatorId} impostato su ${state}`, "success");
-    logEvent(`Comando attuatore: ${actuatorId} -> ${state}`, "success");
+    showToast("Actuator", `${actuatorId} set on ${state}`, "success");
+    logEvent(`Actuator Command: ${actuatorId} -> ${state}`, "success");
   } catch (error) {
     console.error("Errore sendActuatorCommand:", error);
-    showToast("Errore", `Impossibile aggiornare ${actuatorId}`, "danger");
-    logEvent(`Errore comando attuatore ${actuatorId}`, "danger");
+    showToast("Errore", `Impossible to load ${actuatorId}`, "danger");
+    logEvent(`Error command actuator${actuatorId}`, "danger");
   }
 }
 
@@ -458,14 +560,14 @@ async function createRule(payload) {
       body: JSON.stringify(payload)
     });
 
-    showToast("Regola creata", "Nuova regola salvata correttamente", "success");
-    logEvent(`Creata regola su ${payload.sensor_name}.${payload.metric_name}`, "success");
+    showToast("New Rule", "New rule saved correctly", "success");
+    logEvent(`New rule created on ${payload.sensor_name}.${payload.metric_name}`, "success");
 
     await loadRules();
   } catch (error) {
     console.error("Errore createRule:", error);
-    showToast("Errore", "Impossibile creare la regola", "danger");
-    logEvent("Errore creazione regola", "danger");
+    showToast("Errore", "Impossible to create rule", "danger");
+    logEvent("Error in creating rule", "danger");
   }
 }
 
@@ -476,14 +578,14 @@ async function toggleRule(ruleId, enabled) {
       body: JSON.stringify({ enabled: !enabled })
     });
 
-    showToast("Regola aggiornata", `Regola ${ruleId} aggiornata`, "success");
-    logEvent(`Regola ${ruleId} ${enabled ? "disabilitata" : "abilitata"}`, "warning");
+    showToast("Rule updated", `Rule ${ruleId} updated`, "success");
+    logEvent(`Rule ${ruleId} ${enabled ? "disabled" : "enabled"}`, "warning");
 
     await loadRules();
   } catch (error) {
     console.error("Errore toggleRule:", error);
-    showToast("Errore", `Impossibile aggiornare la regola ${ruleId}`, "danger");
-    logEvent(`Errore update regola ${ruleId}`, "danger");
+    showToast("Errore", `Impossible to update rule ${ruleId}`, "danger");
+    logEvent(`Error update rule ${ruleId}`, "danger");
   }
 }
 
@@ -493,14 +595,14 @@ async function deleteRule(ruleId) {
       method: "DELETE"
     });
 
-    showToast("Regola eliminata", `Regola ${ruleId} eliminata`, "warning");
-    logEvent(`Regola ${ruleId} eliminata`, "warning");
+    showToast("Rule deleted", `Rule ${ruleId} deleted`, "warning");
+    logEvent(`Rule ${ruleId} deleted`, "warning");
 
     await loadRules();
   } catch (error) {
-    console.error("Errore deleteRule:", error);
-    showToast("Errore", `Impossibile eliminare la regola ${ruleId}`, "danger");
-    logEvent(`Errore delete regola ${ruleId}`, "danger");
+    console.error("Error deleteRule:", error);
+    showToast("Error", `Impossible to delete rule ${ruleId}`, "danger");
+    logEvent(`Error deleting rule ${ruleId}`, "danger");
   }
 }
 
@@ -531,7 +633,7 @@ async function handleRuleSubmit(event) {
   const payload = getRuleFormPayload();
 
   if (!payload.sensor_name || !payload.metric_name || Number.isNaN(payload.threshold)) {
-    showToast("Form non valido", "Compila correttamente tutti i campi obbligatori", "warning");
+    showToast("Form not valid", "Fill all mandatory entries", "warning");
     return;
   }
 
@@ -553,7 +655,7 @@ async function handleRuleSubmit(event) {
 function bindStaticEvents() {
   dom.refreshButton.addEventListener("click", async () => {
     await refreshDashboard();
-    showToast("Refresh", "Dashboard aggiornata", "info");
+    showToast("Refresh", "Dashboard refreshed", "info");
   });
 
   dom.ruleForm.addEventListener("submit", handleRuleSubmit);
@@ -580,7 +682,7 @@ function bindStaticEvents() {
     const deleteBtn = event.target.closest(".delete-rule-btn");
     if (deleteBtn) {
       const ruleId = deleteBtn.dataset.id;
-      const confirmed = confirm(`Eliminare la regola ${ruleId}?`);
+      const confirmed = confirm(`Deleting rule ${ruleId}?`);
       if (confirmed) {
         await deleteRule(ruleId);
       }
@@ -610,15 +712,15 @@ async function refreshDashboard() {
 async function init() {
   bindStaticEvents();
 
-  logEvent("Frontend inizializzato", "info");
+  logEvent("Initialized frontend", "info");
 
   await refreshDashboard();
 
-  // Polling semplice ogni 10 secondi
+  // Polling backend ogni 5 secondi
   setInterval(async () => {
     await loadHealth();
     await loadLatestState();
-  }, 10000);
+  }, 5000);
 }
 
 document.addEventListener("DOMContentLoaded", init);
