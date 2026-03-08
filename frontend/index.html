@@ -390,6 +390,24 @@
     </div>
   </div>
 
+  <div class="modal fade" id="confirmActionModal" tabindex="-1" aria-labelledby="confirmActionModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content bg-dark text-light border-secondary">
+        <div class="modal-header border-secondary">
+          <h5 class="modal-title" id="confirmActionModalLabel">Confirm action</h5>
+          <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-0" id="confirm-action-message">Are you sure?</p>
+        </div>
+        <div class="modal-footer border-secondary">
+          <button type="button" class="btn btn-outline-light" data-bs-dismiss="modal" id="confirm-action-cancel-btn">Cancel</button>
+          <button type="button" class="btn btn-warning text-dark fw-semibold" id="confirm-action-ok-btn">Confirm</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toast-container"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>

@@ -133,6 +133,18 @@ const ruleModalElements = {
   submitButton: document.getElementById("rule-submit-btn")
 };
 
+const confirmModalElements = {
+  modal: document.getElementById("confirmActionModal"),
+  title: document.getElementById("confirmActionModalLabel"),
+  message: document.getElementById("confirm-action-message"),
+  okButton: document.getElementById("confirm-action-ok-btn")
+};
+
+const confirmModalState = {
+  resolver: null,
+  confirmed: false
+};
+
 /* =========================
    HELPERS
 ========================= */
@@ -374,6 +386,58 @@ function highlightAlertsCard() {
   window.setTimeout(() => {
     dom.alertsEventCard.classList.remove("alerts-card-highlight");
   }, 1200);
+}
+
+function askForConfirmation({
+  title = "Confirm action",
+  message = "Are you sure?",
+  confirmLabel = "Confirm",
+  confirmButtonClass = "btn btn-warning text-dark fw-semibold"
+} = {}) {
+  if (!confirmModalElements.modal || !confirmModalElements.okButton) {
+    showToast("Errore UI", "Confirmation dialog unavailable", "danger");
+    return Promise.resolve(false);
+  }
+
+  confirmModalElements.title.textContent = title;
+  confirmModalElements.message.textContent = message;
+  confirmModalElements.okButton.textContent = confirmLabel;
+  confirmModalElements.okButton.className = confirmButtonClass;
+
+  const modal = bootstrap.Modal.getOrCreateInstance(confirmModalElements.modal);
+
+  if (confirmModalState.resolver) {
+    confirmModalState.resolver(false);
+    confirmModalState.resolver = null;
+  }
+
+  confirmModalState.confirmed = false;
+
+  return new Promise(resolve => {
+    const cleanup = () => {
+      confirmModalElements.okButton.removeEventListener("click", onConfirmClick);
+      confirmModalElements.modal.removeEventListener("hidden.bs.modal", onHidden);
+      confirmModalState.resolver = null;
+    };
+
+    const onConfirmClick = () => {
+      confirmModalState.confirmed = true;
+      modal.hide();
+    };
+
+    const onHidden = () => {
+      const result = confirmModalState.confirmed;
+      confirmModalState.confirmed = false;
+      cleanup();
+      resolve(result);
+    };
+
+    confirmModalState.resolver = resolve;
+    confirmModalElements.okButton.addEventListener("click", onConfirmClick);
+    confirmModalElements.modal.addEventListener("hidden.bs.modal", onHidden, { once: true });
+
+    modal.show();
+  });
 }
 
 async function apiFetch(url, options = {}) {
@@ -1176,7 +1240,12 @@ function bindStaticEvents() {
 
   if (dom.resetRulesButton) {
     dom.resetRulesButton.addEventListener("click", async () => {
-      const confirmed = confirm("Ripristinare tutte le regole ai valori di default? Questa azione sovrascrive modifiche, aggiunte e cancellazioni.");
+      const confirmed = await askForConfirmation({
+        title: "Reset default rules",
+        message: "Ripristinare tutte le regole ai valori di default? Questa azione sovrascrive modifiche, aggiunte e cancellazioni.",
+        confirmLabel: "Reset rules",
+        confirmButtonClass: "btn btn-warning text-dark fw-semibold"
+      });
       if (!confirmed) return;
       await resetRulesToDefault();
     });
@@ -1184,7 +1253,12 @@ function bindStaticEvents() {
 
   if (dom.resetActuatorsButton) {
     dom.resetActuatorsButton.addEventListener("click", async () => {
-      const confirmed = confirm("Impostare tutti gli attuatori a OFF (default)?");
+      const confirmed = await askForConfirmation({
+        title: "Reset actuators",
+        message: "Impostare tutti gli attuatori a OFF (default)?",
+        confirmLabel: "Set OFF",
+        confirmButtonClass: "btn btn-warning text-dark fw-semibold"
+      });
       if (!confirmed) return;
       await resetActuatorsToDefault();
     });
@@ -1231,7 +1305,12 @@ function bindStaticEvents() {
     const deleteBtn = event.target.closest(".delete-rule-btn");
     if (deleteBtn) {
       const ruleId = deleteBtn.dataset.id;
-      const confirmed = confirm(`Deleting rule ${ruleId}?`);
+      const confirmed = await askForConfirmation({
+        title: "Delete rule",
+        message: `Deleting rule ${ruleId}?`,
+        confirmLabel: "Delete",
+        confirmButtonClass: "btn btn-danger fw-semibold"
+      });
       if (confirmed) {
         await deleteRule(ruleId);
       }
