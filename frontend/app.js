@@ -298,8 +298,8 @@ function buildMetricRow(sensor) {
   const value = safeText(sensor.value);
   const unit = safeText(sensor.unit, "");
   const metricName = safeText(sensor.metric_name);
-  const status = safeText(sensor.status, "unknown");
-  const source = safeText(sensor.source, "n/a");
+  const status = safeText(sensor.status, "ok");
+  const source = safeText(sensor.source, sensor.sensor_id);
   const timestamp = formatRelativeTime(sensor.timestamp);
   const isAlert = doesSensorViolateRules(sensor);
 
