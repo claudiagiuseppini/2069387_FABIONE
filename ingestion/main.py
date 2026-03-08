@@ -6,7 +6,7 @@ from workers import start_workers
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Inizializzazione
+    # Initialization
     connect_stomp(conn_poll, "POLLING")
     connect_stomp(conn_telemetry, "TELEMETRY")
     start_workers()

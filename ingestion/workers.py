@@ -22,10 +22,10 @@ def poll_sensors_worker():
                     schema = normalize_data(r.json())
                     topic = f"/topic/mars.metrics.{schema['sensor_id']}"
                     
-                    # Invio al Broker
+                    # Send to broker
                     conn_poll.send(body=json.dumps(schema), destination=topic)
                     
-                    # LOG REINSERITI
+                    # Restored logs
                     for metric in schema['metrics']:
                         print(f"[POLL] {topic} -> {metric['name']} {metric['value']} {metric['unit']}", flush=True)
                 else:
@@ -51,10 +51,10 @@ def stream_telemetry_worker(topic_id):
                     schema = normalize_data(raw_data)
                     dest_topic = f"/topic/mars.telemetry.{schema['sensor_id']}"
                     
-                    # Invio al Broker
+                    # Send to broker
                     conn_telemetry.send(body=json.dumps(schema), destination=dest_topic)
                     
-                    # LOG REINSERITI
+                    # Restored logs
                     for metric in schema['metrics']:
                         print(f"[STREAM] {dest_topic} -> {metric['name']} {metric['value']} {metric['unit'] or ''}", flush=True)
         except Exception as e:
@@ -62,11 +62,11 @@ def stream_telemetry_worker(topic_id):
             time.sleep(5)
 
 def start_workers():
-    # Avvio polling sensori in un thread
+    # Start sensor polling in a thread
     threading.Thread(target=poll_sensors_worker, daemon=True).start()
     
-    # Avvio uno stream SSE per ogni topic di telemetria
+    # Start one SSE stream for each telemetry topic
     topic_list = get_telemetry_list()
     for topic in topic_list:
         threading.Thread(target=stream_telemetry_worker, args=(topic,), daemon=True).start()
-        time.sleep(2.0) # Delay per non sovraccaricare il broker al boot
+        time.sleep(2.0) # Delay to avoid overloading the broker at boot

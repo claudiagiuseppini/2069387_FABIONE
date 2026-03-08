@@ -1,6 +1,6 @@
 # normalization.py
 def normalize_data(raw_data: dict):
-    # Logica sensor_id / sensor_type
+    # sensor_id / sensor_type logic
     if "sensor_id" in raw_data:
         sensor_id = raw_data["sensor_id"]
         sensor_type = "sensor"
@@ -14,7 +14,7 @@ def normalize_data(raw_data: dict):
     timestamp = raw_data.get("captured_at") or raw_data.get("event_time")
     status = raw_data.get("status") or raw_data.get("last_state", "ok")
 
-    # Logica Source
+    # Source logic
     source = None
     if "subsystem" in raw_data: source = raw_data["subsystem"]
     elif isinstance(raw_data.get("source"), dict): source = raw_data["source"].get("segment")
