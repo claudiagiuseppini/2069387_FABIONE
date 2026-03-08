@@ -3,14 +3,21 @@ version: '3.8'
 services:
   simulator:
     image: mars-iot-simulator:multiarch_v1
+    container_name: simulator
     ports:
       - "8080:8080"
     networks:
       - iot-network
     restart: always
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/health').read()"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   broker:
     image: apache/activemq-artemis:latest-alpine
+    container_name: broker
     ports:
       - "61616:61616"
       - "1883:1883"
@@ -22,9 +29,16 @@ services:
       - ANONYMOUS_LOGIN=true
     networks:
       - iot-network
+    healthcheck:
+      # Controlla che la porta STOMP sia aperta e accetti connessioni
+      test: ["CMD", "nc", "-z", "localhost", "61613"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   ingestion-service:
     build: ./ingestion
+    container_name: ingestion_service
     depends_on:
       - simulator
       - broker
@@ -33,7 +47,7 @@ services:
     networks:
       - iot-network
 
-  processing:
+  processing_service:
     build: ./processing
     container_name: processing_service
     depends_on:
@@ -45,6 +59,7 @@ services:
 
   backend:
     build: ./backend
+    container_name: backend
     ports:
       - "8000:8000"
     depends_on:
@@ -53,9 +68,15 @@ services:
       - simulator
     networks:
       - iot-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
 
   db:
     image: mariadb:latest
+    container_name: mariadb
     restart: always
     environment:
       MYSQL_ROOT_PASSWORD: root_password
@@ -67,9 +88,16 @@ services:
       - ./db/data:/var/lib/mysql
     networks:
       - iot-network
+    healthcheck:
+      # Usiamo il client nativo per verificare che il server risponda
+      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost", "-u", "user_mars", "-ppassword_mars"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build: ./frontend
+    container_name: frontend
     ports:
       - "3000:80"
     depends_on:
