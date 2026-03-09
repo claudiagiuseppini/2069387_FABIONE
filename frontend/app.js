@@ -85,6 +85,12 @@ const streamState = {
   connected: false
 };
 
+const chartState = {
+  instance: null,
+  selectedMetricKey: "",
+  history: {}
+};
+
 const alertState = {
   activeViolationKeys: new Set(),
   activeViolationDetails: new Map()
@@ -555,6 +561,122 @@ function bindSensorGroupToggles() {
   });
 }
 
+function initChart() {
+  const canvas = document.getElementById("live-chart");
+
+  if (!canvas) {
+    console.error("Canvas live-chart non trovato");
+    return;
+  }
+
+  if (chartState.instance) {
+    chartState.instance.destroy();
+  }
+
+  chartState.instance = new Chart(canvas, {
+    type: "line",
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label: "No metric selected",
+          data: [],
+          borderWidth: 2,
+          tension: 0.3
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      scales: {
+        x: {
+          ticks: {
+            color: "#94a3b8"
+          },
+          grid: {
+            color: "rgba(255,255,255,0.08)"
+          }
+        },
+        y: {
+          ticks: {
+            color: "#94a3b8"
+          },
+          grid: {
+            color: "rgba(255,255,255,0.08)"
+          }
+        }
+      },
+      plugins: {
+        legend: {
+          labels: {
+            color: "#f1f5f9"
+          }
+        }
+      }
+    }
+  });
+}
+
+function updateChartForSelectedMetric() {
+  if (!chartState.instance) return;
+
+  if (!chartState.history || typeof chartState.history !== "object") {
+    chartState.history = {};
+  }
+
+  const selectedKey = chartState.selectedMetricKey;
+  const points = chartState.history[selectedKey] || [];
+
+  chartState.instance.data.labels = points.map(point => point.x);
+  chartState.instance.data.datasets[0].data = points.map(point => point.y);
+  chartState.instance.data.datasets[0].label = selectedKey || "No metric selected";
+
+  chartState.instance.update();
+}
+
+function appendPointToChartHistory(metricKey, point, maxPoints = 20) {
+  if (!chartState.history || typeof chartState.history !== "object") {
+    chartState.history = {};
+  }
+
+  if (!chartState.history[metricKey]) {
+    chartState.history[metricKey] = [];
+  }
+
+  chartState.history[metricKey].push(point);
+
+  if (chartState.history[metricKey].length > maxPoints) {
+    chartState.history[metricKey] = chartState.history[metricKey].slice(-maxPoints);
+  }
+}
+
+function addSensorToChartHistory(sensor) {
+  if (!sensor) return;
+  if (sensor.value === null || sensor.value === undefined) return;
+
+  const numericValue = Number(sensor.value);
+  if (Number.isNaN(numericValue)) return;
+
+  const metricKey = `${sensor.sensor_id}|${sensor.metric_name}`;
+
+  let label;
+  if (sensor.timestamp) {
+    const date = new Date(sensor.timestamp);
+    label = Number.isNaN(date.getTime())
+      ? String(sensor.timestamp)
+      : date.toLocaleTimeString();
+  } else {
+    label = new Date().toLocaleTimeString();
+  }
+
+  appendPointToChartHistory(metricKey, {
+    x: label,
+    y: numericValue
+  });
+}
+
 /* =========================
    RENDER - OVERVIEW
 ========================= */
@@ -679,16 +801,40 @@ function renderSensorCards() {
 }
 
 function populateChartSelect(sensors) {
-  const options = sensors.map(sensor => {
+  const previousValue = dom.chartSensorSelect.value || chartState.selectedMetricKey || "";
+
+  const uniqueSensors = [];
+  const seen = new Set();
+
+  sensors.forEach(sensor => {
     const value = `${sensor.sensor_id}|${sensor.metric_name}`;
-    const label = `${sensor.sensor_id} - ${sensor.metric_name}`;
-    return `<option value="${value}">${label}</option>`;
+    if (seen.has(value)) return;
+    seen.add(value);
+
+    uniqueSensors.push({
+      value,
+      label: `${sensor.sensor_id} - ${sensor.metric_name}`
+    });
+  });
+
+  const options = uniqueSensors.map(sensor => {
+    return `<option value="${sensor.value}">${sensor.label}</option>`;
   });
 
   dom.chartSensorSelect.innerHTML = `
     <option value="">Seleziona metrica</option>
     ${options.join("")}
   `;
+
+  const valueStillExists = uniqueSensors.some(sensor => sensor.value === previousValue);
+
+  if (valueStillExists) {
+    dom.chartSensorSelect.value = previousValue;
+    chartState.selectedMetricKey = previousValue;
+  } else {
+    dom.chartSensorSelect.value = "";
+    chartState.selectedMetricKey = "";
+  }
 }
 
 /* =========================
@@ -804,20 +950,28 @@ async function loadLatestState() {
     const data = await apiFetch(API_CONFIG.latestState);
 
     if (Array.isArray(data)) {
-      appState.latestSensors = data;
-    } else if (Array.isArray(data.items)) {
-      appState.latestSensors = data.items;
-    } else if (Array.isArray(data.latest)) {
-      appState.latestSensors = data.latest;
-    } else if (Array.isArray(data.data)) {
-      appState.latestSensors = data.data;
-    } else {
-      appState.latestSensors = [];
-    }
+  appState.latestSensors = data;
+} else if (Array.isArray(data.items)) {
+  appState.latestSensors = data.items;
+} else if (Array.isArray(data.latest)) {
+  appState.latestSensors = data.latest;
+} else if (Array.isArray(data.data)) {
+  appState.latestSensors = data.data;
+} else {
+  appState.latestSensors = [];
+}
 
-    renderSensorCards();
-    updateOverview();
-    syncRuleViolationEvents();
+appState.latestSensors.forEach(sensor => {
+  addSensorToChartHistory(sensor);
+});
+
+renderSensorCards();
+updateOverview();
+syncRuleViolationEvents();
+
+if (chartState.selectedMetricKey) {
+  updateChartForSelectedMetric();
+}
 
     logEvent("Sensor state updated", "info");
   } catch (error) {
@@ -898,10 +1052,19 @@ function updateSystemBadge(data) {
 
 function applyDashboardSnapshot(snapshot) {
   if (Array.isArray(snapshot.latest)) {
-    appState.latestSensors = snapshot.latest;
-    renderSensorCards();
-    syncRuleViolationEvents();
+  appState.latestSensors = snapshot.latest;
+
+  appState.latestSensors.forEach(sensor => {
+    addSensorToChartHistory(sensor);
+  });
+
+  renderSensorCards();
+  syncRuleViolationEvents();
+
+  if (chartState.selectedMetricKey) {
+    updateChartForSelectedMetric();
   }
+}
 
   if (snapshot.actuators && typeof snapshot.actuators === "object") {
     appState.actuators = {
@@ -1231,6 +1394,12 @@ async function handleRuleSubmit(event) {
 ========================= */
 
 function bindStaticEvents() {
+
+  dom.chartSensorSelect?.addEventListener("change", (event) => {
+  chartState.selectedMetricKey = event.target.value;
+  updateChartForSelectedMetric();
+});
+
   dom.refreshButton.addEventListener("click", async () => {
     await refreshDashboard();
     showToast("Refresh", "Dashboard refreshed", "info");
@@ -1346,6 +1515,8 @@ async function refreshDashboard() {
 
 async function init() {
   bindStaticEvents();
+
+  initChart();
 
   logEvent("Initialized frontend", "info");
 

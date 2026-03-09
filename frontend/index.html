@@ -271,11 +271,8 @@
             </select>
           </div>
           <div class="card-body">
-            <div id="chart-area" class="chart-placeholder d-flex align-items-center justify-content-center rounded border border-secondary-subtle">
-              <div class="text-center text-secondary">
-                <i class="bi bi-graph-up fs-1 d-block mb-2"></i>
-                CHARTS
-              </div>
+            <div id="chart-area" class="chart-placeholder rounded border border-secondary-subtle p-3">
+              <canvas id="live-chart"></canvas>
             </div>
           </div>
         </div>
@@ -438,6 +435,7 @@
   <div class="toast-container position-fixed bottom-0 end-0 p-3" id="toast-container"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
