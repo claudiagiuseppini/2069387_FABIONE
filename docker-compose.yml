@@ -57,9 +57,9 @@ services:
     networks:
       - iot-network
 
-  backend:
-    build: ./backend
-    container_name: backend
+  gateway:
+    build: ./gateway
+    container_name: gateway
     ports:
       - "8000:8000"
     depends_on:
@@ -101,7 +101,7 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      - gateway
     networks:
       - iot-network
 
