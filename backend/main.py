@@ -2,620 +2,165 @@ import json
 import asyncio
 import time
 import threading
-from pathlib import Path
-from contextlib import asynccontextmanager
-from typing import Optional
-
 import requests
-import stomp
-import mysql.connector
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from contextlib import asynccontextmanager
 
-BROKER_CONF = {
-    "host": "broker",
-    "port": 61613,
-    "user": "admin",
-    "pass": "admin_password"
-}
+from config import SIMULATOR_URL, DEFAULT_RULES_FILE, DEFAULT_ACTUATORS
+from models import RuleCreate, RuleUpdate, ActuatorCommand
+from state import latest_state, event_log, actuators_state, state_lock, event_lock, actuator_lock
+from database import get_db_connection
+from workers import stomp_worker, poll_actuators, stomp_conn, add_event
 
-DB_CONF = {
-    "host": "db",
-    "user": "user_mars",
-    "password": "password_mars",
-    "database": "mars_iot"
-}
-
-SIMULATOR_URL = "http://simulator:8080"
-DEFAULT_RULES_FILE = Path(__file__).with_name("default_rules.json")
-DEFAULT_ACTUATORS = {
-    "cooling_fan": "OFF",
-    "entrance_humidifier": "OFF",
-    "hall_ventilation": "OFF",
-    "habitat_heater": "OFF"
-}
-
-latest_state = {}
-event_log = []
-actuators_state = {
-    **DEFAULT_ACTUATORS
-}
-
-state_lock = threading.Lock()
-event_lock = threading.Lock()
-actuator_lock = threading.Lock()
-
-stomp_conn = stomp.Connection([(BROKER_CONF["host"], BROKER_CONF["port"])])
-
-
-class RuleCreate(BaseModel):
-    sensor_name: str
-    metric_name: str
-    operator: str
-    threshold: float
-    actuator_name: str
-    action_value: str
-    enabled: bool = True
-
-
-class RuleUpdate(BaseModel):
-    sensor_name: Optional[str] = None
-    metric_name: Optional[str] = None
-    operator: Optional[str] = None
-    threshold: Optional[float] = None
-    actuator_name: Optional[str] = None
-    action_value: Optional[str] = None
-    enabled: Optional[bool] = None
-
-
-class ActuatorCommand(BaseModel):
-    state: str
-
-
-def get_db_connection():
-    try:
-        return mysql.connector.connect(**DB_CONF)
-    except Exception as e:
-        print(f"❌ Errore connessione DB: {e}", flush=True)
-        return None
-
-
-def add_event(message: str, event_type: str = "info"):
-    with event_lock:
-        event_log.insert(0, {
-            "message": message,
-            "type": event_type,
-            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
-        })
-        del event_log[50:]
-
-
-def load_default_rules():
-    try:
-        with DEFAULT_RULES_FILE.open("r", encoding="utf-8") as handle:
-            payload = json.load(handle)
-    except FileNotFoundError:
-        raise HTTPException(status_code=500, detail="File regole default non trovato")
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"JSON regole default non valido: {e}")
-
-    if not isinstance(payload, list) or not payload:
-        raise HTTPException(status_code=500, detail="Regole default mancanti o formato non valido")
-
-    required_keys = {
-        "sensor_name",
-        "metric_name",
-        "operator",
-        "threshold",
-        "actuator_name",
-        "action_value",
-        "enabled"
-    }
-
-    for idx, rule in enumerate(payload):
-        if not isinstance(rule, dict):
-            raise HTTPException(status_code=500, detail=f"Regola default non valida in posizione {idx}")
-        missing = required_keys - set(rule.keys())
-        if missing:
-            missing_str = ", ".join(sorted(missing))
-            raise HTTPException(
-                status_code=500,
-                detail=f"Regola default incompleta in posizione {idx}: mancano {missing_str}"
-            )
-
-    return payload
-
-
-class BackendStompListener(stomp.ConnectionListener):
-    def on_message(self, frame):
-        try:
-            data = json.loads(frame.body)
-            sensor_id = data.get("sensor_id", "unknown")
-            
-            # Retrieve the list of metrics (now plural: 'metrics')
-            metrics_list = data.get("metrics", [])
-
-            # If the sensor sends multiple metrics (e.g., temp and humidity),
-            # store them individually in the latest_state dictionary
-            # so the frontend can display them separately.
-            with state_lock:
-                for m_item in metrics_list:
-                    metric_name = m_item.get("name", "unknown")
-                    key = f"{sensor_id}.{metric_name}"
-                    
-                    # Create a frontend-compatible "flat object"
-                    # containing sensor metadata and the individual metric
-                    flat_data = {
-                        "sensor_id": sensor_id,
-                        "sensor_type": data.get("sensor_type"),
-                        "timestamp": data.get("timestamp"),
-                        "status": data.get("status"),
-                        "metric_name": metric_name,
-                        "value": m_item.get("value"),
-                        "unit": m_item.get("unit"),
-                        "source": data.get("source")
-                    }
-                    
-                    latest_state[key] = flat_data
-
-            add_event(f"Update: {sensor_id} ({len(metrics_list)} metriche)", "info")
-
-        except Exception as e:
-            print(f"⚠️ Errore parsing messaggio broker: {e}", flush=True)
-    def on_error(self, frame):
-        print(f"❌ Errore STOMP backend: {frame.body}", flush=True)
-
-    def on_disconnected(self):
-        print("🔄 Backend STOMP disconnesso", flush=True)
-
-
-def connect_stomp():
-    try:
-        if not stomp_conn.is_connected():
-            stomp_conn.set_listener("", BackendStompListener())
-            stomp_conn.connect(
-                BROKER_CONF["user"],
-                BROKER_CONF["pass"],
-                wait=True
-            )
-            stomp_conn.subscribe(
-                destination="/topic/mars.#",
-                id="backend_sub",
-                ack="auto"
-            )
-            print("✅ Backend connesso al broker e sottoscritto a /topic/mars.#", flush=True)
-    except Exception as e:
-        print(f"❌ Errore connessione backend a broker: {e}", flush=True)
-
-
-def stomp_worker():
-    while True:
-        try:
-            if not stomp_conn.is_connected():
-                connect_stomp()
-        except Exception as e:
-            print(f"⚠️ Worker STOMP: {e}", flush=True)
-        time.sleep(5)
-
-
-def poll_actuators():
-    while True:
-        try:
-            response = requests.get(f"{SIMULATOR_URL}/api/actuators", timeout=5)
-            if response.status_code == 200:
-                payload = response.json()
-                discovered = {}
-
-                if isinstance(payload, dict):
-                    if "actuators" in payload and isinstance(payload["actuators"], list):
-                        for item in payload["actuators"]:
-                            actuator_id = item.get("actuator_id") or item.get("id") or item.get("name")
-                            state = item.get("state") or item.get("last_state") or "OFF"
-                            if actuator_id:
-                                discovered[actuator_id] = state
-                    elif "actuators" in payload and isinstance(payload["actuators"], dict):
-                        for actuator_id, state in payload["actuators"].items():
-                            discovered[actuator_id] = state
-                    else:
-                        for k, v in payload.items():
-                            if isinstance(v, dict):
-                                state = v.get("state") or v.get("last_state") or "OFF"
-                                discovered[k] = state
-
-                with actuator_lock:
-                    actuators_state.clear()
-                    actuators_state.update(discovered)
-
-        except Exception as e:
-            print(f"⚠️ Poll actuators error: {e}", flush=True)
-
-        time.sleep(5)
-
-
+# --- Utility Snapshot (CORRETTA) ---
 def build_dashboard_snapshot():
     with state_lock:
         latest = list(latest_state.values())
-
     with actuator_lock:
         actuators = dict(actuators_state)
-
-    health_payload = {
-        "status": True,
-        "broker_connected": stomp_conn.is_connected(),
-        "cached_metrics": len(latest),
-        "cached_events": len(event_log),
-        "known_actuators": len(actuators)
-    }
+    with event_lock:
+        events = list(event_log)
 
     return {
         "latest": latest,
         "actuators": actuators,
-        "health": health_payload,
+        "health": {
+            "status": True,
+            "broker_connected": stomp_conn.is_connected(),
+            "cached_metrics": len(latest),
+            "cached_events": len(events),
+            "known_actuators": len(actuators) # <--- Fondamentale per il frontend
+        },
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S")
     }
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     t1 = threading.Thread(target=stomp_worker, daemon=True)
     t2 = threading.Thread(target=poll_actuators, daemon=True)
-
     t1.start()
     t2.start()
-
     yield
-
-    try:
-        if stomp_conn.is_connected():
-            stomp_conn.disconnect()
-    except Exception:
-        pass
-
+    if stomp_conn.is_connected(): stomp_conn.disconnect()
 
 app = FastAPI(title="Mars Backend API", lifespan=lifespan)
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
+# --- ROTTE API ---
 
 @app.get("/api/health")
 def health():
-    return {
-        "status": True,
-        "broker_connected": stomp_conn.is_connected(),
-        "cached_metrics": len(latest_state),
-        "cached_events": len(event_log),
-        "known_actuators": len(actuators_state)
-    }
-
+    return {"status": True, "broker_connected": stomp_conn.is_connected()}
 
 @app.get("/api/stream/dashboard")
 async def stream_dashboard():
     async def event_generator():
-        last_payload = ""
-        heartbeat_seconds = 15
-        elapsed = 0
-
-        # SSE reconnect hint for clients.
         yield "retry: 5000\n\n"
-
+        last_payload = ""
         while True:
             snapshot = build_dashboard_snapshot()
-            payload = json.dumps(snapshot, ensure_ascii=True, sort_keys=True)
-
+            payload = json.dumps(snapshot, sort_keys=True)
             if payload != last_payload:
                 last_payload = payload
-                elapsed = 0
                 yield f"data: {payload}\n\n"
-            else:
-                elapsed += 1
-                if elapsed >= heartbeat_seconds:
-                    elapsed = 0
-                    # Keepalive comment to avoid intermediaries closing idle streams.
-                    yield ": ping\n\n"
-
             await asyncio.sleep(1)
-
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
-
-
-@app.get("/api/latest")
-def get_latest():
-    with state_lock:
-        return list(latest_state.values())
-
-
-@app.get("/api/latest/{sensor_id}")
-def get_latest_by_sensor(sensor_id: str):
-    with state_lock:
-        filtered = [
-            value for value in latest_state.values()
-            if value.get("sensor_id") == sensor_id
-        ]
-    return filtered
-
-
-@app.get("/api/events")
-def get_events():
-    with event_lock:
-        return {"items": event_log}
-
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 @app.get("/api/actuators")
 def get_actuators():
     with actuator_lock:
-        if not actuators_state:
-            return dict(DEFAULT_ACTUATORS)
-        return actuators_state
-
-
-@app.post("/api/actuators/reset")
-def reset_all_actuators_to_default():
-    # Reset every known actuator to OFF on simulator and local cache.
-    with actuator_lock:
-        known_actuators = set(DEFAULT_ACTUATORS.keys()) | set(actuators_state.keys())
-
-    if not known_actuators:
-        known_actuators = set(DEFAULT_ACTUATORS.keys())
-
-    errors = []
-
-    for actuator_id in sorted(known_actuators):
-        try:
-            response = requests.post(
-                f"{SIMULATOR_URL}/api/actuators/{actuator_id}",
-                json={"state": "OFF"},
-                timeout=5
-            )
-
-            if response.status_code not in (200, 201):
-                errors.append(f"{actuator_id}: HTTP {response.status_code}")
-        except Exception as e:
-            errors.append(f"{actuator_id}: {e}")
-
-    with actuator_lock:
-        for actuator_id in known_actuators:
-            actuators_state[actuator_id] = "OFF"
-
-    if errors:
-        add_event(
-            f"Reset attuatori completato con errori ({len(errors)})",
-            "warning"
-        )
-        raise HTTPException(
-            status_code=502,
-            detail={
-                "message": "Reset attuatori parziale",
-                "errors": errors
-            }
-        )
-
-    add_event("Reset attuatori completato: tutti OFF", "warning")
-    return {
-        "ok": True,
-        "reset_count": len(known_actuators),
-        "state": "OFF"
-    }
-
+        return actuators_state if actuators_state else dict(DEFAULT_ACTUATORS)
 
 @app.post("/api/actuators/{actuator_id}")
 def command_actuator(actuator_id: str, payload: ActuatorCommand):
     try:
-        response = requests.post(
-            f"{SIMULATOR_URL}/api/actuators/{actuator_id}",
-            json={"state": payload.state},
-            timeout=5
-        )
-
-        if response.status_code not in (200, 201):
-            raise HTTPException(
-                status_code=response.status_code,
-                detail=f"Errore simulatore: {response.text}"
-            )
-
+        # 1. Invia il comando al simulatore
+        r = requests.post(f"{SIMULATOR_URL}/api/actuators/{actuator_id}", 
+                          json={"state": payload.state}, timeout=5)
+        
+        if r.status_code not in (200, 201):
+            raise HTTPException(status_code=r.status_code, detail=f"Simulatore errore: {r.text}")
+        
+        # 2. Aggiorna lo stato locale SOLO se il simulatore ha risposto OK
         with actuator_lock:
             actuators_state[actuator_id] = payload.state
-
-        add_event(f"Attuatore {actuator_id} impostato su {payload.state}", "success")
-
-        return {
-            "ok": True,
-            "actuator_id": actuator_id,
-            "state": payload.state
-        }
-
-    except HTTPException:
-        raise
+        
+        add_event(f"Attuatore {actuator_id} -> {payload.state}", "success")
+        return {"ok": True, "state": payload.state}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+# --- CRUD REGOLE ---
 
 @app.get("/api/rules")
 def get_rules():
     conn = get_db_connection()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Connessione DB fallita")
-
-    try:
-        cursor = conn.cursor(dictionary=True)
-        cursor.execute("""
-            SELECT id, sensor_name, metric_name, operator, threshold,
-                   actuator_name, action_value, enabled
-            FROM automation_rules
-            ORDER BY id DESC
-        """)
-        rows = cursor.fetchall()
-        cursor.close()
-        return rows
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
+    if not conn: raise HTTPException(status_code=500)
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute("SELECT * FROM automation_rules ORDER BY id DESC")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return rows
 
 @app.post("/api/rules")
 def create_rule(rule: RuleCreate):
     conn = get_db_connection()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Connessione DB fallita")
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO automation_rules
-            (sensor_name, metric_name, operator, threshold, actuator_name, action_value, enabled)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (
-            rule.sensor_name,
-            rule.metric_name,
-            rule.operator,
-            rule.threshold,
-            rule.actuator_name,
-            rule.action_value,
-            int(rule.enabled)
-        ))
-        conn.commit()
-        rule_id = cursor.lastrowid
-        cursor.close()
-
-        add_event(f"Creata regola {rule_id} per {rule.sensor_name}.{rule.metric_name}", "success")
-
-        return {"ok": True, "id": rule_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO automation_rules (sensor_name, metric_name, operator, threshold, actuator_name, action_value, enabled)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+    """, (rule.sensor_name, rule.metric_name, rule.operator, rule.threshold, rule.actuator_name, rule.action_value, int(rule.enabled)))
+    conn.commit()
+    rid = cursor.lastrowid
+    cursor.close()
+    conn.close()
+    add_event(f"Creata regola {rid}", "success")
+    return {"ok": True, "id": rid}
 
 @app.put("/api/rules/{rule_id}")
 def update_rule(rule_id: int, rule: RuleUpdate):
     conn = get_db_connection()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Connessione DB fallita")
-
-    try:
-        fields = []
-        values = []
-
-        payload = rule.model_dump(exclude_unset=True)
-
-        for key, value in payload.items():
-            if key == "enabled":
-                value = int(value)
-            fields.append(f"{key} = %s")
-            values.append(value)
-
-        if not fields:
-            raise HTTPException(status_code=400, detail="Nessun campo da aggiornare")
-
-        values.append(rule_id)
-
-        query = f"""
-            UPDATE automation_rules
-            SET {", ".join(fields)}
-            WHERE id = %s
-        """
-
-        cursor = conn.cursor()
-        cursor.execute(query, tuple(values))
-        conn.commit()
-        cursor.close()
-
-        add_event(f"Aggiornata regola {rule_id}", "warning")
-
-        return {"ok": True, "id": rule_id}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
+    payload = rule.model_dump(exclude_unset=True)
+    if not payload: raise HTTPException(status_code=400)
+    
+    fields = [f"{k} = %s" for k in payload.keys()]
+    values = list(payload.values())
+    values.append(rule_id)
+    
+    cursor = conn.cursor()
+    cursor.execute(f"UPDATE automation_rules SET {', '.join(fields)} WHERE id = %s", tuple(values))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return {"ok": True}
 
 @app.delete("/api/rules/{rule_id}")
 def delete_rule(rule_id: int):
     conn = get_db_connection()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Connessione DB fallita")
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM automation_rules WHERE id = %s", (rule_id,))
-        conn.commit()
-        cursor.close()
-
-        add_event(f"Eliminata regola {rule_id}", "danger")
-
-        return {"ok": True, "id": rule_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
-
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM automation_rules WHERE id = %s", (rule_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    add_event(f"Eliminata regola {rule_id}", "danger")
+    return {"ok": True}
 
 @app.post("/api/rules/reset")
 def reset_rules_to_default():
-    default_rules = load_default_rules()
-
+    defaults = load_default_rules()
     conn = get_db_connection()
-    if not conn:
-        raise HTTPException(status_code=500, detail="Connessione DB fallita")
-
-    try:
-        cursor = conn.cursor()
-
-        # TRUNCATE resets AUTO_INCREMENT so IDs start again from 1.
-        cursor.execute("TRUNCATE TABLE automation_rules")
-        cursor.executemany(
-            """
-            INSERT INTO automation_rules
-            (id, sensor_name, metric_name, operator, threshold, actuator_name, action_value, enabled)
+    cursor = conn.cursor()
+    cursor.execute("TRUNCATE TABLE automation_rules")
+    for idx, r in enumerate(defaults, 1):
+        cursor.execute("""
+            INSERT INTO automation_rules (id, sensor_name, metric_name, operator, threshold, actuator_name, action_value, enabled)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """,
-            [
-                (
-                    idx,
-                    rule["sensor_name"],
-                    rule["metric_name"],
-                    rule["operator"],
-                    rule["threshold"],
-                    rule["actuator_name"],
-                    rule["action_value"],
-                    int(rule["enabled"])
-                )
-                for idx, rule in enumerate(default_rules, start=1)
-            ]
-        )
-
-        conn.commit()
-        reset_count = len(default_rules)
-        cursor.close()
-
-        add_event(f"Reset regole completato: {reset_count} regole default ripristinate", "warning")
-
-        return {
-            "ok": True,
-            "reset_count": reset_count
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        conn.rollback()
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        conn.close()
+        """, (idx, r["sensor_name"], r["metric_name"], r["operator"], r["threshold"], r["actuator_name"], r["action_value"], int(r["enabled"])))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    add_event("Reset regole completato", "warning")
+    return {"ok": True, "count": len(defaults)}
