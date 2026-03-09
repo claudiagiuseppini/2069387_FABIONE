@@ -183,7 +183,7 @@ The service is organized into several modules:
     - `models.py` defines the internal telemetry dataclass.
     - `config.py` contains broker, database, and operator configuration.
 
-## CONTAINER_NAME: Backend API
+## CONTAINER_NAME: Gateway
 
 ### DESCRIPTION:
 Provides the REST API and server-side event stream used by the frontend dashboard. It exposes rule management, actuator control, health monitoring, event logging, and access to the latest sensor state.
@@ -209,10 +209,10 @@ Provides the REST API and server-side event stream used by the frontend dashboar
 8000:8000
 
 ### PERSISTENCE EVALUATION
-The Backend API container keeps transient in-memory caches for latest sensor data, event logs, and actuator state, but relies on the database container for persistent storage of automation rules.
+The Gateway container keeps transient in-memory caches for latest sensor data, event logs, and actuator state, but relies on the database container for persistent storage of automation rules.
 
 ### EXTERNAL SERVICES CONNECTIONS
-The Backend API container connects to the Broker through STOMP, to the Database through MySQL, and to the Simulator through HTTP for actuator state synchronization.
+The Gateway container connects to the Broker through STOMP, to the Database through MySQL, and to the Simulator through HTTP for actuator state synchronization.
 
 ### MICROSERVICES:
 
@@ -229,7 +229,14 @@ The microservice is developed in Python using FastAPI. It uses:
     - `requests` for HTTP communication with the simulator
     - `pydantic` for request validation
 - SERVICE ARCHITECTURE:
-The service is implemented mainly in `main.py`. It initializes background threads for broker subscription and actuator polling, caches sensor updates received from the broker, stores a rolling event log, and exposes REST endpoints used by the dashboard. The backend also reads default rules from `default_rules.json` when the user requests a reset.
+The service is organized into several functional modules to ensure separation of concerns and maintainability:
+    - `main.py`: The entry point of the application; it initializes the FastAPI instance, includes the API routers, and orchestrates the startup/shutdown of background services.
+    - `workers.py`: Manages the asynchronous background tasks, specifically the STOMP broker connection, message subscription, and the continuous ingestion loop for incoming data.
+    - `database.py`: Handles all interactions with the MariaDB database.
+    - `state.py`: Manages the global in-memory state of the habitat, storing the latest normalized metrics, current actuator statuses, and the rolling event log for the dashboard.
+    - `models.py`: Defines the standardized schemas and internal dataclasses.
+    - `config.py`: Centralizes all environment variables and constant settings, such as connection strings for the Broker, Database, and Simulator API.
+ The Gateway also reads default rules from `default_rules.json` when the user requests a reset.
 
 - ENDPOINTS:
 

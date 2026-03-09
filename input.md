@@ -1,26 +1,157 @@
-# SYSTEM DESCRIPTION:
+# Input Document: Mars Habitat Control System
 
+## 1. System Description
 Mars Habitat Control is an IoT platform that enables real-time monitoring and automation of environmental conditions in a simulated Mars habitat. Users can manage automation rules based on sensor data, control actuators, and visualize data to ensure optimal habitat conditions.
 
-# USER STORIES:
 
-1. As the User I want to see all the rules in a compact way 
-2. As the User I want to add a new rule 
-3. As the User I want to remove an existing rule 
-4. As the User I want to modify an existing rule 
-5. As the User I want to enable/disable an existing rule
-6. As the User I want to reset the rules
-7. As the User I want to save all rules persistently
-8. As the User I want to see which rules have been broken
-9. As the User I want to see the current active actuators
-10. As the User I want to see the current active sensors
-11. As the User I want to manually turn on/off a specific actuator
-12. As the User I want to reset all actuators to off
-13. As the User I want to visualize charts regarding current data from sensors
-14. As the User I want to visualize related sensors near to each other
-15. As the User I want to see how much time has passed since the latest update
-16. As the User I want to visualize dangerous conditions as red
-17. As the User I want to see the number of sensors, live telemetries, active rules and actuators currently on.
-18. As the User I want to see which sensors are in warning status
-19. As the User I want to directly access the alert section by clicking on a single button
-20. As the User I want to be notified when a rule has been broken
+## 2. User Stories
+1.  **Compact View**: As a User, I want to see all the rules in a compact way.
+2.  **Add Rule**: As a User, I want to add a new rule.
+3.  **Remove Rule**: As a User, I want to remove an existing rule.
+4.  **Modify Rule**: As a User, I want to modify an existing rule.
+5.  **Toggle Rule**: As a User, I want to enable/disable an existing rule.
+6.  **Reset Rules**: As a User, I want to reset the rules to defaults.
+7.  **Persistence**: As a User, I want to save all rules persistently.
+8.  **Violations**: As a User, I want to see which rules have been broken.
+9.  **Actuator Status**: As a User, I want to see the current active actuators.
+10. **Sensor Status**: As a User, I want to see the current active sensors.
+11. **Manual Control**: As a User, I want to manually turn on/off a specific actuator.
+12. **Global Reset**: As a User, I want to reset all actuators to OFF.
+13. **Data Visualization**: As a User, I want to visualize charts regarding current data from sensors.
+14. **Grouping**: As a User, I want to visualize related sensors near to each other.
+15. **Liveness**: As a User, I want to see how much time has passed since the latest update.
+16. **Visual Alerts**: As a User, I want to visualize dangerous conditions in red.
+17. **System Overview**: As a User, I want to see the number of sensors, live telemetries, active rules, and actuators currently on.
+18. **Warnings**: As a User, I want to see which sensors are in warning status.
+19. **Quick Access**: As a User, I want to directly access the alert section by clicking on a single button.
+20. **Notifications**: As a User, I want to be notified when a rule has been broken.
+
+
+## 3. Standard Event Schema (Data Normalization)
+
+The system ingests data from 8 different JSON models (4 sensors, 4 telemetries) and normalizes them into a unified format to allow consistent processing by the rule engine and the dashboard.
+
+## 3. Standard Event Schema (Data Normalization)
+
+The system ingests heterogeneous JSON payloads from 8 different models (4 sensors and 4 telemetries). A data normalization function processes these payloads and converts them into a unified schema, enabling standardized processing by the backend and rule engine.
+
+```json
+{
+  "sensor_id": "string",       // Unique ID or derived from topic
+  "sensor_type": "string",     // "sensor" or "telemetric"
+  "timestamp": "ISO8601/UTC",  // Captured/Event time
+  "source": "string | null",   // Origin location or subsystem
+  "status": "string",          // Current status (e.g., ok, warning, IDLE)
+  "metrics": [                 // List of measurements
+    {
+      "name": "string",        // Metric name
+      "value": "number",       // Measured value
+      "unit": "string | null"  // Unit of measurement
+    }
+  ]
+}
+
+### 3.2 Input Models and Mapping Equivalences
+
+The normalization function identifies the payload type based on key identifiers (`sensor_id` for sensors or `topic` for telemetries) and applies specific mapping logic for each of the eight supported models.
+
+#### Sensor Models (`sensor_type`: "sensor")
+For all sensor models, the **Common Mapping** applies:
+* **sensor_id**: Mapped directly from the input `sensor_id`.
+* **timestamp**: Extracted and converted from `captured_at`.
+* **source**: Always set to `null` (not provided by these hardware models).
+* **status**: Mapped directly from the `status` field.
+
+1. **Basic Sensor** (Single measurement)
+   * **metrics**: A list containing one object where `name` is the string from `metric`, `value` is the number from `value`, and `unit` is the string from `unit`.
+
+2. **Multi-Measurement Sensor**
+   * **metrics**: An array generated by iterating through the input `measurements`. For each item, `metric`, `value`, and `unit` are mapped to `name`, `value`, and `unit` respectively.
+
+3. **Environmental (Air Quality)**
+   * **metrics**: A list of three objects. The keys `pm1_ug_m3`, `pm25_ug_m3`, and `pm10_ug_m3` are used as the `name` for each object, while their numeric values are assigned to `value`. `unit` is set to "µg/m³".
+
+4. **Tank Level Sensor**
+   * **metrics**: A list of two objects. The keys `level_pct` and `level_liters` are used as the `name`, and their numeric values are assigned to `value`. `unit` is mapped as "%" and "L" respectively.
+
+#### Telemetric Models (`sensor_type`: "telemetric")
+For all telemetry models, the **Common Mapping** applies:
+* **sensor_id**: Derived by stripping the `/topic/mars/` prefix from the `topic` string.
+* **timestamp**: Extracted and converted from `event_time`.
+
+5. **Power System**
+   * **source**: Mapped from the `subsystem` field.
+   * **status**: Defaults to "ok" (operational telemetry).
+   * **metrics**: A list of four objects using `power_kw`, `voltage_v`, `current_a`, and `cumulative_kwh` as `name`. Their respective numeric values are mapped to `value`.
+
+6. **Advanced Telemetry**
+   * **source**: Mapped from the nested `source.segment` field.
+   * **status**: Mapped directly from the `status` field.
+   * **metrics**: An array where each object from the input `measurements` is mapped to the standard `{name, value, unit}` structure.
+
+7. **Thermal Loop**
+   * **source**: Mapped from the `loop` field.
+   * **status**: Mapped directly from the `status` field.
+   * **metrics**: A list of two objects using `temperature_c` and `flow_l_min` as `name`, with their numeric values assigned to `value`.
+
+8. **Airlock Control**
+   * **source**: Mapped from the `airlock_id` field.
+   * **status**: Mapped from the `last_state` field (e.g., "PRESSURIZING", "IDLE").
+   * **metrics**: A list containing one object where `name` is set to "cycles_per_hour" and `value` is the number from `cycles_per_hour`.
+
+## 4. Rule Model
+
+The automation engine evaluates the unified schemas against user-defined rules stored in a relational database. If a normalized metric breaches a rule threshold, an actuator command is triggered.
+
+### 4.1 Automation Rules Definition
+
+The system is configured with the following operational rules. Each rule follows the logic: 
+*If **[Sensor]**'s **[Metric]** is **[Operator]** than **[Threshold]**, then set **[Actuator]** to **[Action]**.*
+
+
+
+#### Greenhouse & Environment
+* **Temperature Control**: 
+    * If `greenhouse_temperature` > 27°C $\rightarrow$ `cooling_fan` **ON**
+    * If `greenhouse_temperature` < 23°C $\rightarrow$ `cooling_fan` **OFF**
+* **Humidity Management**:
+    * If `entrance_humidity` < 30% $\rightarrow$ `entrance_humidifier` **ON**
+    * If `entrance_humidity` > 40% $\rightarrow$ `entrance_humidifier` **OFF**
+
+#### Air Quality & Ventilation
+* **CO2 Levels**:
+    * If `co2_hall` > 1000 ppm $\rightarrow$ `hall_ventilation` **ON**
+    * If `co2_hall` < 700 ppm $\rightarrow$ `hall_ventilation` **OFF**
+* **Pressure**:
+    * If `corridor_pressure` < 100 kPa $\rightarrow$ `hall_ventilation` **ON**
+    * If `corridor_pressure` > 101 kPa $\rightarrow$ `hall_ventilation` **OFF**
+* **Particulate Matter (PM)**:
+    * If `pm1_ug_m3` > 15 OR `pm25_ug_m3` > 18 OR `pm10_ug_m3` > 25 $\rightarrow$ `hall_ventilation` **ON**
+    * If `pm1_ug_m3` < 12 AND `pm25_ug_m3` < 15 AND `pm10_ug_m3` < 23 $\rightarrow$ `hall_ventilation` **OFF**
+* **Volatile Organic Compounds (VOC)**:
+    * If `voc_ppb` > 242 OR `co2e_ppm` > 505 $\rightarrow$ `hall_ventilation` **ON**
+    * If `voc_ppb` < 240 AND `co2e_ppm` < 499 $\rightarrow$ `hall_ventilation` **OFF**
+
+#### Life Support & Thermal Systems
+* **Oxygen Levels**:
+    * If `life_support` (oxygen) > 21.4% $\rightarrow$ `entrance_humidifier` **OFF**
+    * If `life_support` (oxygen) < 19.6% $\rightarrow$ `entrance_humidifier` **ON**
+* **Thermal Loop Control**:
+    * If `thermal_loop` (temp) < 42°C $\rightarrow$ `habitat_heater` **ON** AND `cooling_fan` **OFF**
+    * If `thermal_loop` (temp) > 46°C $\rightarrow$ `habitat_heater` **OFF** AND `cooling_fan` **ON**
+* **Flow Rate**:
+    * If `thermal_loop` (flow) < 85 L/min $\rightarrow$ `habitat_heater` **ON**
+    * If `thermal_loop` (flow) > 115 L/min $\rightarrow$ `habitat_heater` **OFF**
+
+#### Airlock Operations
+* **Traffic Control**:
+    * If `airlock` (cycles/h) < 3 $\rightarrow$ `hall_ventilation` **ON**
+    * If `airlock` (cycles/h) > 5 $\rightarrow$ `hall_ventilation` **OFF**
+
+---
+
+### 4.2 Execution Logic
+1.  **Event Ingestion**: The system receives a normalized event.
+2.  **Rule Match**: The engine scans the active rule list for a matching `sensor_name` and `metric_name`.
+3.  **Comparison**: The current `metric_value` is compared against the `threshold` using the specified `operator`.
+4.  **Action**: If the condition is true, a command is dispatched to the target actuator.
