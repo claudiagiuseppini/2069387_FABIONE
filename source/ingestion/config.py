@@ -1,4 +1,6 @@
 # config.py
+
+# global variables
 SIMULATOR_URL = "http://simulator:8080"
 BROKER_HOST = "broker"
 BROKER_PORT = 61613

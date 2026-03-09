@@ -1,5 +1,7 @@
 # normalization.py
 def normalize_data(raw_data: dict):
+    '''Function that normalizes input schemas in a unique and standard schema'''
+
     # sensor_id / sensor_type logic
     if "sensor_id" in raw_data:
         sensor_id = raw_data["sensor_id"]
@@ -11,7 +13,10 @@ def normalize_data(raw_data: dict):
         sensor_id = "unknown"
         sensor_type = "unknown"
 
+    # timestamp logic
     timestamp = raw_data.get("captured_at") or raw_data.get("event_time")
+
+    # status logic
     status = raw_data.get("status") or raw_data.get("last_state", "ok")
 
     # Source logic
@@ -21,6 +26,7 @@ def normalize_data(raw_data: dict):
     elif "loop" in raw_data: source = raw_data["loop"]
     elif "airlock_id" in raw_data: source = raw_data["airlock_id"]
 
+    # metrics logic
     metrics_to_process = []
     if "measurements" in raw_data and isinstance(raw_data["measurements"], list):
         for m in raw_data["measurements"]:
@@ -39,6 +45,7 @@ def normalize_data(raw_data: dict):
 
     metric_list = [{"name": str(n), "value": v, "unit": u or ""} for n, v, u in metrics_to_process]
 
+    # final schema
     normalized_schema = {
         "sensor_id": sensor_id,
         "sensor_type": sensor_type,
