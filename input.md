@@ -50,7 +50,7 @@ The system ingests heterogeneous JSON payloads from 8 different models (4 sensor
     }
   ]
 }
-
+```
 ### 3.2 Input Models and Mapping Equivalences
 
 The normalization function identifies the payload type based on key identifiers (`sensor_id` for sensors or `topic` for telemetries) and applies specific mapping logic for each of the eight supported models.
@@ -148,7 +148,6 @@ The system is configured with the following operational rules. Each rule follows
     * If `airlock` (cycles/h) < 3 $\rightarrow$ `hall_ventilation` **ON**
     * If `airlock` (cycles/h) > 5 $\rightarrow$ `hall_ventilation` **OFF**
 
----
 
 ### 4.2 Execution Logic
 1.  **Event Ingestion**: The system receives a normalized event.
