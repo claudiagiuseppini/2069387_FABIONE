@@ -21,7 +21,7 @@
     "sensor_name": "entrance_humidity",
     "metric_name": "humidity_pct",
     "operator": "<",
-    "threshold": 28,
+    "threshold": 30,
     "actuator_name": "entrance_humidifier",
     "action_value": "ON",
     "enabled": true
@@ -30,7 +30,7 @@
     "sensor_name": "entrance_humidity",
     "metric_name": "humidity_pct",
     "operator": ">",
-    "threshold": 31,
+    "threshold": 40,
     "actuator_name": "entrance_humidifier",
     "action_value": "OFF",
     "enabled": true
@@ -39,7 +39,7 @@
     "sensor_name": "co2_hall",
     "metric_name": "co2_ppm",
     "operator": ">",
-    "threshold": 1300.0,
+    "threshold": 1000.0,
     "actuator_name": "hall_ventilation",
     "action_value": "ON",
     "enabled": true
@@ -48,7 +48,7 @@
     "sensor_name": "co2_hall",
     "metric_name": "co2_ppm",
     "operator": "<",
-    "threshold": 1280.0,
+    "threshold": 700.0,
     "actuator_name": "hall_ventilation",
     "action_value": "OFF",
     "enabled": true
@@ -111,7 +111,7 @@
     "sensor_name": "air_quality_pm25",
     "metric_name": "pm10_ug_m3",
     "operator": ">",
-    "threshold": 26,
+    "threshold": 25,
     "actuator_name": "hall_ventilation",
     "action_value": "ON",
     "enabled": true
@@ -120,7 +120,7 @@
     "sensor_name": "air_quality_pm25",
     "metric_name": "pm10_ug_m3",
     "operator": "<",
-    "threshold": 24,
+    "threshold": 23,
     "actuator_name": "hall_ventilation",
     "action_value": "OFF",
     "enabled": true
@@ -157,6 +157,96 @@
     "metric_name": "co2e_ppm",
     "operator": "<",
     "threshold": 499,
+    "actuator_name": "hall_ventilation",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "life_support",
+    "metric_name": "oxygen_percent",
+    "operator": ">",
+    "threshold": 21.4,
+    "actuator_name": "entrance_humidifier",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "life_support",
+    "metric_name": "oxygen_percent",
+    "operator": "<",
+    "threshold": 19.6,
+    "actuator_name": "entrance_humidifier",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "thermal_loop",
+    "metric_name": "temperature_c",
+    "operator": "<",
+    "threshold": 42,
+    "actuator_name": "habitat_heater",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "thermal_loop",
+    "metric_name": "temperature_c",
+    "operator": ">",
+    "threshold": 46,
+    "actuator_name": "habitat_heater",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "thermal_loop",
+    "metric_name": "temperature_c",
+    "operator": "<",
+    "threshold": 42,
+    "actuator_name": "cooling_fan",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "thermal_loop",
+    "metric_name": "temperature_c",
+    "operator": ">",
+    "threshold": 46,
+    "actuator_name": "cooling_fan",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "thermal_loop",
+    "metric_name": "flow_l_min",
+    "operator": "<",
+    "threshold": 85,
+    "actuator_name": "habitat_heater",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "thermal_loop",
+    "metric_name": "flow_l_min",
+    "operator": ">",
+    "threshold": 115,
+    "actuator_name": "habitat_heater",
+    "action_value": "OFF",
+    "enabled": true
+  },
+  {
+    "sensor_name": "airlock",
+    "metric_name": "cycles_per_hour",
+    "operator": "<",
+    "threshold": 3,
+    "actuator_name": "hall_ventilation",
+    "action_value": "ON",
+    "enabled": true
+  },
+  {
+    "sensor_name": "airlock",
+    "metric_name": "cycles_per_hour",
+    "operator": ">",
+    "threshold": 5,
     "actuator_name": "hall_ventilation",
     "action_value": "OFF",
     "enabled": true
