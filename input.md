@@ -27,14 +27,12 @@ Mars Habitat Control is an IoT platform that enables real-time monitoring and au
 20. **Notifications**: As a User, I want to be notified when a rule has been broken.
 
 
-## 3. Standard Event Schema (Data Normalization)
-
-The system ingests data from 8 different JSON models (4 sensors, 4 telemetries) and normalizes them into a unified format to allow consistent processing by the rule engine and the dashboard.
-
-## 3. Standard Event Schema (Data Normalization)
+## 3. Data Normalization
 
 The system ingests heterogeneous JSON payloads from 8 different models (4 sensors and 4 telemetries). A data normalization function processes these payloads and converts them into a unified schema, enabling standardized processing by the backend and rule engine.
 
+
+### 3.1 Normalized Schema
 ```json
 {
   "sensor_id": "string",       // Unique ID or derived from topic
