@@ -1,5 +1,6 @@
 import operator
 
+# global variables
 BROKER_CONF = {
     "host": "broker",
     "port": 61613,
