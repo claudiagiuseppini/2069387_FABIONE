@@ -1249,15 +1249,15 @@ async function resetActuatorsToDefault() {
     renderActuators();
     updateOverview();
 
-    showToast("Reset actuators", `${resetCount} attuatori impostati su OFF`, "warning");
-    logEvent(`Reset attuatori: ${resetCount} attuatori su OFF`, "warning");
+    showToast("Reset actuators", `${resetCount} actuators set to OFF`, "warning");
+    logEvent(`Reset actuators: ${resetCount} actuators set to OFF`, "warning");
 
     await loadActuators();
     return true;
   } catch (error) {
     console.error("Errore resetActuatorsToDefault:", error);
     showToast("Errore", "Impossible to reset actuators to OFF", "danger");
-    logEvent("Errore reset attuatori", "danger");
+    logEvent("Reset actuators error", "danger");
     return false;
   }
 }
@@ -1349,8 +1349,8 @@ async function resetRulesToDefault() {
 
     const resetCount = Number(response?.reset_count || 0);
 
-    showToast("Rules reset", `Ripristinate ${resetCount} regole di default`, "warning");
-    logEvent(`Regole ripristinate ai default (${resetCount})`, "warning");
+    showToast("Rules reset", `Reset ${resetCount} default rules`, "warning");
+    logEvent(`Reset default rules (${resetCount})`, "warning");
 
     await loadRules();
     return true;
@@ -1471,7 +1471,7 @@ function bindStaticEvents() {
     dom.resetRulesButton.addEventListener("click", async () => {
       const confirmed = await askForConfirmation({
         title: "Reset default rules",
-        message: "Ripristinare tutte le regole ai valori di default? Questa azione sovrascrive modifiche, aggiunte e cancellazioni.",
+        message: "Restore all rules to their default values? This action overwrites modifications, additions, and deletions.",
         confirmLabel: "Reset rules",
         confirmButtonClass: "btn btn-warning text-dark fw-semibold"
       });
@@ -1484,7 +1484,7 @@ function bindStaticEvents() {
     dom.resetActuatorsButton.addEventListener("click", async () => {
       const confirmed = await askForConfirmation({
         title: "Reset actuators",
-        message: "Impostare tutti gli attuatori a OFF (default)?",
+        message: "Set all actuators to OFF (default)?",
         confirmLabel: "Set OFF",
         confirmButtonClass: "btn btn-warning text-dark fw-semibold"
       });
