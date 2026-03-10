@@ -39,7 +39,7 @@ body {
   font-weight: 700;
   border-radius: 0.7rem;
   transition: all 0.2s ease;
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
 }
 
 .actuator-toggle-btn.actuator-on {
@@ -694,6 +694,15 @@ body {
   .chart-placeholder {
     min-height: 240px;
   }
+}
+
+#chart-area {
+  height: 350px;
+}
+
+#live-chart {
+  width: 100% !important;
+  height: 100% !important;
 }
 
 @media (max-width: 768px) {

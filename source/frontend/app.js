@@ -1,100 +1,89 @@
-/* =========================
-   CONFIG
-========================= */
+import {
+  nowLabel,
+  safeText,
+  parseTimestamp,
+  formatRelativeTime,
+  normalizeOperator,
+  evaluateRule,
+  isRuleEnabled,
+  statusClass,
+  sanitizeGroupKey
+} from "./js/utils.js";
 
-const API_BASE = "http://localhost:8000";
+import { API_CONFIG, apiFetch } from "./js/api.js";
 
-const API_CONFIG = {
-  latestState: `${API_BASE}/api/latest`,
-  rules: `${API_BASE}/api/rules`,
-  resetRules: `${API_BASE}/api/rules/reset`,
-  actuators: `${API_BASE}/api/actuators`,
-  resetActuators: `${API_BASE}/api/actuators/reset`,
-  events: `${API_BASE}/api/events`,
-  health: `${API_BASE}/api/health`,
-  dashboardStream: `${API_BASE}/api/stream/dashboard`
-};
+import {
+  chartState,
+  initChart,
+  updateChartForSelectedMetric,
+  appendPointToChartHistory,
+  addSensorToChartHistory
+} from "./js/chart.js";
 
-const STREAM_CONFIG = {
-  fallbackPollingMs: 10000
-};
+import { appState, streamState, alertState } from "./js/state.js";
 
-const SENSOR_GROUPS = [
-  {
-    key: "priority",
-    title: "PRIORITY",
-    sensors: [
-      "airlock",
-      "greenhouse_temperature",
-      "life_support",
-      "radiation",
-      "water_tank_level"
-    ]
-  },
-  {
-    key: "air",
-    title: "AIR",
-    sensors: [
-      "co2_hall",
-      "air_quality_pm25",
-      "air_quality_voc"
-    ]
-  },
-  {
-    key: "power",
-    title: "POWER",
-    sensors: [
-      "power_consumption",
-      "power_bus",
-      "solar_array"
-    ]
-  },
-  {
-    key: "miscellaneous",
-    title: "MISCELLANEOUS",
-    sensors: [
-      "thermal_loop",
-      "hydroponic_ph",
-      "entrance_humidity",
-      "corridor_pressure"
-    ]
-  }
-];
+import {
+  SENSOR_GROUPS,
+  groupSensorsByCategories,
+  buildMetricRow,
+  bindSensorGroupToggles,
+  populateChartSelect,
+  renderSensorCards
+} from "./js/sensors.js";
 
-/* =========================
-   STATE
-========================= */
+import {
+  STREAM_CONFIG,
+  stopFallbackPolling,
+  startFallbackPolling,
+  closeDashboardStream,
+  startDashboardStream
+} from "./js/stream.js";
 
-const appState = {
-  latestSensors: [],
-  rules: [],
-  editingRuleId: null,
-  actuators: {
-    cooling_fan: "OFF",
-    entrance_humidifier: "OFF",
-    hall_ventilation: "OFF",
-    habitat_heater: "OFF"
-  },
-  eventLog: [],
-  openGroups: new Set(["priority"])
-};
+import {
+  createRule,
+  updateRule,
+  toggleRule,
+  deleteRule,
+  resetRulesToDefault
+} from "./js/rules-api.js";
 
-const streamState = {
-  source: null,
-  fallbackTimer: null,
-  connected: false
-};
+import {
+  getRuleFormPayload,
+  setRuleFormModeEditing,
+  openEditRuleModal,
+  setRuleFormModeCreate,
+  resetRuleForm,
+  handleRuleSubmit
+} from "./js/rules-form.js";
 
-const chartState = {
-  instance: null,
-  selectedMetricKey: "",
-  history: {}
-};
+import { renderRulesTable } from "./js/rules-table.js";
 
-const alertState = {
-  activeViolationKeys: new Set(),
-  activeViolationDetails: new Map()
-};
+import { bindRuleActions } from "./js/rules-actions-ui.js";
+
+import {
+  renderActuators,
+  sendActuatorCommand,
+  resetActuatorsToDefault,
+  bindActuatorActions
+} from "./js/actuators.js";
+
+import {
+  showToast,
+  scrollToAlertsSection,
+  highlightAlertsCard,
+  askForConfirmation
+} from "./js/ui-feedback.js";
+
+import {
+  updateOverview,
+  renderEventLog,
+  updateSystemBadge
+} from "./js/overview.js";
+
+import {
+  extractLatestSensors,
+  mergeActuatorStates
+} from "./js/dashboard-data.js";
 
 /* =========================
    DOM REFERENCES
@@ -151,98 +140,37 @@ const confirmModalState = {
   confirmed: false
 };
 
+const actuatorElements = {
+  cooling_fan: {
+    button: document.querySelector('.actuator-toggle-btn[data-actuator="cooling_fan"]'),
+    icon: document.querySelector('[data-actuator-icon="cooling_fan"]')
+  },
+  entrance_humidifier: {
+    button: document.querySelector('.actuator-toggle-btn[data-actuator="entrance_humidifier"]'),
+    icon: document.querySelector('[data-actuator-icon="entrance_humidifier"]')
+  },
+  hall_ventilation: {
+    button: document.querySelector('.actuator-toggle-btn[data-actuator="hall_ventilation"]'),
+    icon: document.querySelector('[data-actuator-icon="hall_ventilation"]')
+  },
+  habitat_heater: {
+    button: document.querySelector('.actuator-toggle-btn[data-actuator="habitat_heater"]'),
+    icon: document.querySelector('[data-actuator-icon="habitat_heater"]')
+  }
+};
+
 /* =========================
    HELPERS
 ========================= */
 
-function nowLabel() {
-  return new Date().toLocaleTimeString("it-IT");
-}
-
-function safeText(value, fallback = "--") {
-  return value === null || value === undefined || value === "" ? fallback : value;
-}
-
-function parseTimestamp(timestamp) {
-  if (timestamp === null || timestamp === undefined || timestamp === "") {
-    return null;
-  }
-
-  if (typeof timestamp === "number") {
-    const ms = timestamp < 1e12 ? timestamp * 1000 : timestamp;
-    const date = new Date(ms);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const str = String(timestamp).trim();
-
-  if (/^\d+$/.test(str)) {
-    const numeric = Number(str);
-    const ms = numeric < 1e12 ? numeric * 1000 : numeric;
-    const date = new Date(ms);
-    return Number.isNaN(date.getTime()) ? null : date;
-  }
-
-  const normalized = str.replace(/\.(\d{3})\d+/, ".$1");
-  const date = new Date(normalized);
-
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function formatRelativeTime(timestamp) {
-  const date = parseTimestamp(timestamp);
-  if (!date) return "--";
-
-  let diffSeconds = Math.floor((Date.now() - date.getTime()) / 1000);
-
-  if (diffSeconds < 0) diffSeconds = 0;
-
-  const hours = Math.floor(diffSeconds / 3600);
-  const minutes = Math.floor((diffSeconds % 3600) / 60);
-  const seconds = diffSeconds % 60;
-
-  const mm = String(minutes).padStart(2, "0");
-  const ss = String(seconds).padStart(2, "0");
-
-  if (hours > 0) {
-    const hh = String(hours).padStart(2, "0");
-    return `${hh}:${mm}:${ss} ago`;
-  }
-
-  return `${mm}:${ss} ago`;
-}
-
-function normalizeOperator(operator) {
-  if (operator === "=") return "==";
-  return operator;
-}
-
-function evaluateRule(value, operator, threshold) {
-  const numericValue = Number(value);
-  const numericThreshold = Number(threshold);
-
-  if (Number.isNaN(numericValue) || Number.isNaN(numericThreshold)) {
-    return false;
-  }
-
-  switch (normalizeOperator(operator)) {
-    case ">":
-      return numericValue > numericThreshold;
-    case "<":
-      return numericValue < numericThreshold;
-    case ">=":
-      return numericValue >= numericThreshold;
-    case "<=":
-      return numericValue <= numericThreshold;
-    case "==":
-      return numericValue === numericThreshold;
-    default:
-      return false;
-  }
-}
-
-function isRuleEnabled(rule) {
-  return rule.enabled === true || rule.enabled === 1;
+function refreshOverviewUI() {
+  updateOverview({
+    appState,
+    dom,
+    groupSensorsByCategories,
+    isRuleEnabled,
+    nowLabel
+  });
 }
 
 function getSensorRuleViolations(sensor) {
@@ -315,16 +243,6 @@ function syncRuleViolationEvents() {
   alertState.activeViolationDetails = currentViolations;
 }
 
-function statusClass(status) {
-  const normalized = String(status || "").toLowerCase();
-
-  if (normalized.includes("ok") || normalized.includes("on")) return "status-ok";
-  if (normalized.includes("warn")) return "status-warning";
-  if (normalized.includes("error") || normalized.includes("fail") || normalized.includes("off")) return "status-error";
-
-  return "status-unknown";
-}
-
 function logEvent(message, type = "info") {
   const item = {
     id: Date.now() + Math.random(),
@@ -335,609 +253,9 @@ function logEvent(message, type = "info") {
 
   appState.eventLog.unshift(item);
   appState.eventLog = appState.eventLog.slice(0, 20);
-  renderEventLog();
-}
-
-function showToast(title, message, type = "info") {
-  const toastId = `toast-${Date.now()}`;
-
-  let borderClass = "border-info";
-  if (type === "success") borderClass = "border-success";
-  if (type === "warning") borderClass = "border-warning";
-  if (type === "danger" || type === "error") borderClass = "border-danger";
-
-  const toastHtml = `
-    <div id="${toastId}" class="toast ${borderClass}" role="alert" aria-live="assertive" aria-atomic="true">
-      <div class="toast-header">
-        <strong class="me-auto">${title}</strong>
-        <small class="text-secondary">${nowLabel()}</small>
-        <button type="button" class="btn-close btn-close-white ms-2 mb-1" data-bs-dismiss="toast" aria-label="Chiudi"></button>
-      </div>
-      <div class="toast-body">
-        ${message}
-      </div>
-    </div>
-  `;
-
-  dom.toastContainer.insertAdjacentHTML("beforeend", toastHtml);
-
-  const toastElement = document.getElementById(toastId);
-  const toast = new bootstrap.Toast(toastElement, { delay: 4000 });
-  toast.show();
-
-  toastElement.addEventListener("hidden.bs.toast", () => {
-    toastElement.remove();
-  });
-}
-
-function scrollToAlertsSection() {
-  if (!dom.alertsSection) return;
-
-  dom.alertsSection.scrollIntoView({
-    behavior: "smooth",
-    block: "center"
-  });
-}
-
-function highlightAlertsCard() {
-  if (!dom.alertsEventCard) return;
-
-  dom.alertsEventCard.classList.remove("alerts-card-highlight");
-
-  // Restart animation on repeated clicks.
-  void dom.alertsEventCard.offsetWidth;
-
-  dom.alertsEventCard.classList.add("alerts-card-highlight");
-
-  window.setTimeout(() => {
-    dom.alertsEventCard.classList.remove("alerts-card-highlight");
-  }, 1200);
-}
-
-function askForConfirmation({
-  title = "Confirm action",
-  message = "Are you sure?",
-  confirmLabel = "Confirm",
-  confirmButtonClass = "btn btn-warning text-dark fw-semibold"
-} = {}) {
-  if (!confirmModalElements.modal || !confirmModalElements.okButton) {
-    showToast("Errore UI", "Confirmation dialog unavailable", "danger");
-    return Promise.resolve(false);
-  }
-
-  confirmModalElements.title.textContent = title;
-  confirmModalElements.message.textContent = message;
-  confirmModalElements.okButton.textContent = confirmLabel;
-  confirmModalElements.okButton.className = confirmButtonClass;
-
-  const modal = bootstrap.Modal.getOrCreateInstance(confirmModalElements.modal);
-
-  if (confirmModalState.resolver) {
-    confirmModalState.resolver(false);
-    confirmModalState.resolver = null;
-  }
-
-  confirmModalState.confirmed = false;
-
-  return new Promise(resolve => {
-    const cleanup = () => {
-      confirmModalElements.okButton.removeEventListener("click", onConfirmClick);
-      confirmModalElements.modal.removeEventListener("hidden.bs.modal", onHidden);
-      confirmModalState.resolver = null;
-    };
-
-    const onConfirmClick = () => {
-      confirmModalState.confirmed = true;
-      modal.hide();
-    };
-
-    const onHidden = () => {
-      const result = confirmModalState.confirmed;
-      confirmModalState.confirmed = false;
-      cleanup();
-      resolve(result);
-    };
-
-    confirmModalState.resolver = resolve;
-    confirmModalElements.okButton.addEventListener("click", onConfirmClick);
-    confirmModalElements.modal.addEventListener("hidden.bs.modal", onHidden, { once: true });
-
-    modal.show();
-  });
-}
-
-async function apiFetch(url, options = {}) {
-  const response = await fetch(url, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    },
-    ...options
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`HTTP ${response.status}: ${text}`);
-  }
-
-  const contentType = response.headers.get("content-type") || "";
-  if (contentType.includes("application/json")) {
-    return response.json();
-  }
-
-  return response.text();
-}
-
-function groupSensorsByCategories(sensors) {
-  const groups = new Map();
-
-  // Initialize groups
-  SENSOR_GROUPS.forEach(group => {
-    groups.set(group.key, {
-      key: group.key,
-      title: group.title,
-      metrics: []
-    });
-  });
-
-  sensors.forEach(sensor => {
-    let found = false;
-    for (const group of SENSOR_GROUPS) {
-      if (group.sensors.includes(sensor.sensor_id)) {
-        groups.get(group.key).metrics.push(sensor);
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
-      // Add to miscellaneous if not matched
-      if (groups.has('miscellaneous')) {
-        groups.get('miscellaneous').metrics.push(sensor);
-      }
-    }
-  });
-
-  // Return in the order defined, only non-empty
-  return SENSOR_GROUPS.map(group => groups.get(group.key)).filter(group => group.metrics.length > 0);
-}
-
-function sanitizeGroupKey(value) {
-  return String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
-}
-
-function buildMetricRow(sensor) {
-  const value = safeText(sensor.value);
-  const unit = safeText(sensor.unit, "");
-  const metricName = safeText(sensor.metric_name);
-  const status = safeText(sensor.status, "ok");
-  const source = safeText(sensor.source, sensor.sensor_id);
-  const timestamp = formatRelativeTime(sensor.timestamp);
-  const isAlert = doesSensorViolateRules(sensor);
-
-  return `
-    <div class="metric-row ${isAlert ? "metric-row-alert" : ""}">
-      <div class="metric-row-main">
-        <div class="metric-row-name">
-          ${metricName}
-          ${unit ? `<span class="metric-row-unit">${unit}</span>` : ""}
-        </div>
-        <div class="metric-row-value">${value}</div>
-      </div>
-
-      <div class="metric-row-meta">
-        <span class="sensor-status ${statusClass(status)}">${status}</span>
-        <span><strong>Source:</strong> ${source}</span>
-        <span><strong>Updated:</strong> ${timestamp}</span>
-        ${isAlert ? `<span class="metric-row-rule-alert">Rule violated</span>` : ""}
-      </div>
-    </div>
-  `;
-}
-
-function bindSensorGroupToggles() {
-  const toggles = dom.sensorCardsContainer.querySelectorAll(".sensor-group-toggle");
-
-  toggles.forEach(toggle => {
-    toggle.addEventListener("click", () => {
-      const groupName = toggle.dataset.sensorGroup;
-      const details = toggle.nextElementSibling;
-
-      if (!groupName || !details) return;
-
-      const isOpen = appState.openGroups.has(groupName);
-
-      if (isOpen) {
-        appState.openGroups.delete(groupName);
-        toggle.classList.add("collapsed");
-        toggle.setAttribute("aria-expanded", "false");
-        details.classList.remove("open");
-      } else {
-        appState.openGroups.add(groupName);
-        toggle.classList.remove("collapsed");
-        toggle.setAttribute("aria-expanded", "true");
-        details.classList.add("open");
-      }
-    });
-  });
-}
-
-function initChart() {
-  const canvas = document.getElementById("live-chart");
-
-  if (!canvas) {
-    console.error("Canvas live-chart non trovato");
-    return;
-  }
-
-  if (chartState.instance) {
-    chartState.instance.destroy();
-  }
-
-  chartState.instance = new Chart(canvas, {
-    type: "line",
-    data: {
-      labels: [],
-      datasets: [
-        {
-          label: "No metric selected",
-          data: [],
-          borderWidth: 2,
-          tension: 0.3
-        }
-      ]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: false,
-      scales: {
-        x: {
-          ticks: {
-            color: "#94a3b8"
-          },
-          grid: {
-            color: "rgba(255,255,255,0.08)"
-          }
-        },
-        y: {
-          ticks: {
-            color: "#94a3b8"
-          },
-          grid: {
-            color: "rgba(255,255,255,0.08)"
-          }
-        }
-      },
-      plugins: {
-        legend: {
-          labels: {
-            color: "#f1f5f9"
-          }
-        }
-      }
-    }
-  });
-}
-
-function updateChartForSelectedMetric() {
-  if (!chartState.instance) return;
-
-  if (!chartState.history || typeof chartState.history !== "object") {
-    chartState.history = {};
-  }
-
-  const selectedKey = chartState.selectedMetricKey;
-  const points = chartState.history[selectedKey] || [];
-
-  chartState.instance.data.labels = points.map(point => point.x);
-  chartState.instance.data.datasets[0].data = points.map(point => point.y);
-  chartState.instance.data.datasets[0].label = selectedKey || "No metric selected";
-
-  chartState.instance.update();
-}
-
-function appendPointToChartHistory(metricKey, point, maxPoints = 20) {
-  if (!chartState.history || typeof chartState.history !== "object") {
-    chartState.history = {};
-  }
-
-  if (!chartState.history[metricKey]) {
-    chartState.history[metricKey] = [];
-  }
-
-  chartState.history[metricKey].push(point);
-
-  if (chartState.history[metricKey].length > maxPoints) {
-    chartState.history[metricKey] = chartState.history[metricKey].slice(-maxPoints);
-  }
-}
-
-function addSensorToChartHistory(sensor) {
-  if (!sensor) return;
-  if (sensor.value === null || sensor.value === undefined) return;
-
-  const numericValue = Number(sensor.value);
-  if (Number.isNaN(numericValue)) return;
-
-  const metricKey = `${sensor.sensor_id}|${sensor.metric_name}`;
-
-  let label;
-  if (sensor.timestamp) {
-    const date = new Date(sensor.timestamp);
-    label = Number.isNaN(date.getTime())
-      ? String(sensor.timestamp)
-      : date.toLocaleTimeString();
-  } else {
-    label = new Date().toLocaleTimeString();
-  }
-
-  appendPointToChartHistory(metricKey, {
-    x: label,
-    y: numericValue
-  });
-}
-
-/* =========================
-   RENDER - OVERVIEW
-========================= */
-
-function updateOverview() {
-  const uniqueSensorIds = new Set(appState.latestSensors.map(s => s.sensor_id));
-  dom.activeSensorsCount.textContent = uniqueSensorIds.size;
-
-  const groupedSensors = groupSensorsByCategories(appState.latestSensors);
-  dom.sensorCardsBadge.textContent = `${groupedSensors.length} categories · ${appState.latestSensors.length} metrics`;
-
-  const telemetryCount = appState.latestSensors.filter(
-    item => String(item.sensor_type || "").toLowerCase().includes("tele")
-  ).length;
-  dom.liveTelemetryCount.textContent = telemetryCount;
-
-  const enabledRules = appState.rules.filter(isRuleEnabled).length;
-  dom.activeRulesCount.textContent = enabledRules;
-
-  const actuatorsOn = Object.values(appState.actuators).filter(
-    state => String(state).toUpperCase() === "ON"
-  ).length;
-  dom.activeActuatorsCount.textContent = actuatorsOn;
-
-  dom.lastUpdateLabel.textContent = `Time: ${nowLabel()}`;
-}
-
-/* =========================
-   RENDER - SENSOR CARDS
-========================= */
-
-function renderSensorCards() {
-  if (!appState.latestSensors.length) {
-    dom.sensorCardsContainer.innerHTML = `
-      <div class="col-12">
-        <div class="placeholder-box text-center text-secondary py-5 rounded border border-secondary-subtle">
-          Nessun dato disponibile
-        </div>
-      </div>
-    `;
-    populateChartSelect([]);
-    return;
-  }
-
-  // Preserve scroll position of open categories
-  const scrollPositions = {};
-  document.querySelectorAll('.sensor-group-details.open').forEach(el => {
-    scrollPositions[el.id] = el.scrollTop;
-  });
-
-  // Disable transitions for seamless update
-  dom.sensorCardsContainer.classList.add('no-transition');
-
-  const groupedSensors = groupSensorsByCategories(appState.latestSensors);
-
-  const html = groupedSensors.map(group => {
-    const groupKey = sanitizeGroupKey(group.key);
-    const collapseId = `sensor-group-${groupKey}`;
-    const isOpen = appState.openGroups.has(group.key);
-    const sensorsCount = new Set(group.metrics.map(s => s.sensor_id)).size;
-    const metricsCount = group.metrics.length;
-
-    // Group sensors within category by sensor_id
-    const sensorGroups = group.metrics.reduce((acc, sensor) => {
-      const id = sensor.sensor_id;
-      if (!acc[id]) acc[id] = [];
-      acc[id].push(sensor);
-      return acc;
-    }, {});
-
-    return `
-      <div class="col-12">
-        <div class="sensor-card sensor-group-card">
-          <button
-            class="sensor-group-toggle ${isOpen ? "" : "collapsed"}"
-            type="button"
-            data-sensor-group="${group.key}"
-            aria-expanded="${isOpen ? "true" : "false"}"
-            aria-controls="${collapseId}"
-          >
-            <div class="sensor-group-header">
-              <div>
-                <div class="sensor-title mb-1">${group.title}</div>
-                <div class="sensor-subtitle mb-0">
-                  ${sensorsCount} sensor${sensorsCount !== 1 ? "s" : ""} · ${metricsCount} metric${metricsCount !== 1 ? "s" : ""}
-                </div>
-              </div>
-
-              <div class="sensor-group-chevron">
-                <i class="bi bi-chevron-down"></i>
-              </div>
-            </div>
-          </button>
-
-          <div id="${collapseId}" class="sensor-group-details ${isOpen ? "open" : ""}">
-            <div class="category-sensors">
-              ${Object.entries(sensorGroups).map(([sensorId, sensors]) => `
-                <div class="sensor-section">
-                  <h6 class="sensor-section-title">${sensorId}</h6>
-                  <div class="sensor-group-metrics">
-                    ${sensors.map(buildMetricRow).join("")}
-                  </div>
-                </div>
-              `).join("")}
-            </div>
-          </div>
-        </div>
-      </div>
-    `;
-  }).join("");
-
-  dom.sensorCardsContainer.innerHTML = html;
-  // Restore scroll positions
-  Object.entries(scrollPositions).forEach(([id, top]) => {
-    const el = document.getElementById(id);
-    if (el) el.scrollTop = top;
-  });
-  // Re-enable transitions
-  dom.sensorCardsContainer.classList.remove('no-transition');
-  bindSensorGroupToggles();
-  populateChartSelect(appState.latestSensors);
-}
-
-function populateChartSelect(sensors) {
-  const previousValue = dom.chartSensorSelect.value || chartState.selectedMetricKey || "";
-
-  const uniqueSensors = [];
-  const seen = new Set();
-
-  sensors.forEach(sensor => {
-    const value = `${sensor.sensor_id}|${sensor.metric_name}`;
-    if (seen.has(value)) return;
-    seen.add(value);
-
-    uniqueSensors.push({
-      value,
-      label: `${sensor.sensor_id} - ${sensor.metric_name}`
-    });
-  });
-
-  const options = uniqueSensors.map(sensor => {
-    return `<option value="${sensor.value}">${sensor.label}</option>`;
-  });
-
-  dom.chartSensorSelect.innerHTML = `
-    <option value="">Seleziona metrica</option>
-    ${options.join("")}
-  `;
-
-  const valueStillExists = uniqueSensors.some(sensor => sensor.value === previousValue);
-
-  if (valueStillExists) {
-    dom.chartSensorSelect.value = previousValue;
-    chartState.selectedMetricKey = previousValue;
-  } else {
-    dom.chartSensorSelect.value = "";
-    chartState.selectedMetricKey = "";
-  }
-}
-
-/* =========================
-   RENDER - RULES TABLE
-========================= */
-
-function renderRulesTable() {
-  if (!appState.rules.length) {
-    dom.rulesTableBody.innerHTML = `
-      <tr>
-        <td colspan="7" class="text-center text-secondary py-4">
-          Nessuna regola caricata
-        </td>
-      </tr>
-    `;
-    return;
-  }
-
-  const html = appState.rules.map(rule => {
-    const enabled = isRuleEnabled(rule);
-
-    return `
-      <tr>
-        <td>${safeText(rule.sensor_name)}</td>
-        <td>${safeText(rule.metric_name)}</td>
-        <td>
-          <span class="fw-semibold">${safeText(rule.operator)}</span>
-          ${safeText(rule.threshold)}
-        </td>
-        <td>${safeText(rule.actuator_name)}</td>
-        <td>${safeText(rule.action_value)}</td>
-        <td>
-          <span class="${enabled ? "rule-badge-enabled" : "rule-badge-disabled"}">
-            ${enabled ? "Enabled" : "Disabled"}
-          </span>
-        </td>
-        <td class="text-end">
-          <button class="btn btn-sm btn-outline-info me-1 edit-rule-btn" data-id="${rule.id}">
-            Edit
-          </button>
-          <button class="btn btn-sm btn-outline-light me-1 toggle-rule-btn" data-id="${rule.id}" data-enabled="${enabled}">
-            ${enabled ? "Disable" : "Enable"}
-          </button>
-          <button class="btn btn-sm btn-outline-danger delete-rule-btn" data-id="${rule.id}">
-            Delete
-          </button>
-        </td>
-      </tr>
-    `;
-  }).join("");
-
-  dom.rulesTableBody.innerHTML = html;
-}
-
-/* =========================
-   RENDER - EVENT LOG
-========================= */
-
-function renderEventLog() {
-  if (!appState.eventLog.length) {
-    dom.eventLogList.innerHTML = `
-      <li class="list-group-item bg-black text-secondary border-secondary">
-        Nessun evento disponibile
-      </li>
-    `;
-    return;
-  }
-
-  const html = appState.eventLog.map(event => `
-    <li class="list-group-item border-secondary">
-      <div class="text-white event-item event-${event.type}">
-        <div class="text-white fw-semibold">${event.message}</div>
-        <div class="text-white event-time">${event.time}</div>
-      </div>
-    </li>
-  `).join("");
-
-  dom.eventLogList.innerHTML = html;
-}
-
-/* =========================
-   RENDER - ACTUATORS
-========================= */
-
-function renderActuators() {
-  const actuatorItems = document.querySelectorAll(".actuator-item");
-
-  actuatorItems.forEach(item => {
-    const toggleButton = item.querySelector(".actuator-toggle-btn");
-    if (!toggleButton) return;
-
-    const actuatorId = toggleButton.dataset.actuator;
-    const state = (appState.actuators[actuatorId] || "OFF").toUpperCase();
-    const icon = item.querySelector(`[data-actuator-icon="${actuatorId}"]`);
-
-    toggleButton.textContent = state;
-    toggleButton.classList.remove("actuator-on", "actuator-off");
-    toggleButton.classList.add(state === "ON" ? "actuator-on" : "actuator-off");
-
-    if (icon) {
-      icon.classList.remove("actuator-icon-on", "actuator-icon-off");
-      icon.classList.add(state === "ON" ? "actuator-icon-on" : "actuator-icon-off");
-    }
+  renderEventLog({
+    eventLog: appState.eventLog,
+    eventLogList: dom.eventLogList
   });
 }
 
@@ -949,24 +267,29 @@ async function loadLatestState() {
   try {
     const data = await apiFetch(API_CONFIG.latestState);
 
-    if (Array.isArray(data)) {
-  appState.latestSensors = data;
-} else if (Array.isArray(data.items)) {
-  appState.latestSensors = data.items;
-} else if (Array.isArray(data.latest)) {
-  appState.latestSensors = data.latest;
-} else if (Array.isArray(data.data)) {
-  appState.latestSensors = data.data;
-} else {
-  appState.latestSensors = [];
-}
+appState.latestSensors = extractLatestSensors(data);
 
 appState.latestSensors.forEach(sensor => {
   addSensorToChartHistory(sensor);
 });
 
-renderSensorCards();
-updateOverview();
+renderSensorCards({
+  latestSensors: appState.latestSensors,
+  sensorCardsContainer: dom.sensorCardsContainer,
+  chartSensorSelect: dom.chartSensorSelect,
+  appState,
+  chartState,
+  helpers: {
+    sanitizeGroupKey,
+    buildMetricRowHelpers: {
+      safeText,
+      formatRelativeTime,
+      statusClass,
+      doesSensorViolateRules
+    }
+  }
+});
+refreshOverviewUI();
 syncRuleViolationEvents();
 
 if (chartState.selectedMetricKey) {
@@ -995,9 +318,30 @@ async function loadRules() {
       appState.rules = [];
     }
 
-    renderRulesTable();
-    renderSensorCards();
-    updateOverview();
+    renderRulesTable({
+      rules: appState.rules,
+      rulesTableBody: dom.rulesTableBody,
+      safeText,
+      isRuleEnabled
+    });
+
+    renderSensorCards({
+      latestSensors: appState.latestSensors,
+      sensorCardsContainer: dom.sensorCardsContainer,
+      chartSensorSelect: dom.chartSensorSelect,
+      appState,
+      chartState,
+      helpers: {
+        sanitizeGroupKey,
+        buildMetricRowHelpers: {
+          safeText,
+          formatRelativeTime,
+          statusClass,
+          doesSensorViolateRules
+        }
+      }
+    });    
+    refreshOverviewUI();
     syncRuleViolationEvents();
 
     logEvent("Rules Updated", "info");
@@ -1011,7 +355,10 @@ async function loadRules() {
 async function loadHealth() {
   try {
     const data = await apiFetch(API_CONFIG.health);
-    updateSystemBadge(data);
+    updateSystemBadge({
+      data,
+      systemStatusBadge: dom.systemStatusBadge
+    });
   } catch (error) {
     dom.systemStatusBadge.textContent = "System Offline";
     dom.systemStatusBadge.className = "badge rounded-pill text-bg-danger";
@@ -1022,43 +369,45 @@ async function loadActuators() {
   try {
     const data = await apiFetch(API_CONFIG.actuators);
 
-    if (data && typeof data === "object" && !Array.isArray(data)) {
-      appState.actuators = {
-        ...appState.actuators,
-        ...Object.fromEntries(
-          Object.entries(data).map(([key, value]) => [
-            key,
-            String(value || "OFF").toUpperCase()
-          ])
-        )
-      };
-    }
+    appState.actuators = mergeActuatorStates(appState.actuators, data);
 
-    renderActuators();
-    updateOverview();
+    renderActuators({
+      appState,
+      actuatorElements
+    });
+    refreshOverviewUI();
   } catch (error) {
     console.error("Errore loadActuators:", error);
     logEvent("Errore caricamento attuatori", "danger");
   }
 }
 
-function updateSystemBadge(data) {
-  const ok = data?.status || data?.ok || data?.service;
-  dom.systemStatusBadge.textContent = ok ? "System Online" : "System Degraded";
-  dom.systemStatusBadge.className = ok
-    ? "badge rounded-pill text-bg-success"
-    : "badge rounded-pill text-bg-danger";
-}
-
 function applyDashboardSnapshot(snapshot) {
-  if (Array.isArray(snapshot.latest)) {
-  appState.latestSensors = snapshot.latest;
+  const nextLatestSensors = extractLatestSensors(snapshot?.latest);
+
+if (nextLatestSensors.length > 0) {
+  appState.latestSensors = nextLatestSensors;
 
   appState.latestSensors.forEach(sensor => {
     addSensorToChartHistory(sensor);
   });
 
-  renderSensorCards();
+  renderSensorCards({
+  latestSensors: appState.latestSensors,
+  sensorCardsContainer: dom.sensorCardsContainer,
+  chartSensorSelect: dom.chartSensorSelect,
+  appState,
+  chartState,
+  helpers: {
+    sanitizeGroupKey,
+    buildMetricRowHelpers: {
+      safeText,
+      formatRelativeTime,
+      statusClass,
+      doesSensorViolateRules
+    }
+  }
+});
   syncRuleViolationEvents();
 
   if (chartState.selectedMetricKey) {
@@ -1066,327 +415,24 @@ function applyDashboardSnapshot(snapshot) {
   }
 }
 
-  if (snapshot.actuators && typeof snapshot.actuators === "object") {
-    appState.actuators = {
-      ...appState.actuators,
-      ...Object.fromEntries(
-        Object.entries(snapshot.actuators).map(([key, value]) => [
-          key,
-          String(value || "OFF").toUpperCase()
-        ])
-      )
-    };
-    renderActuators();
+  const mergedActuators = mergeActuatorStates(appState.actuators, snapshot.actuators);
+
+if (mergedActuators !== appState.actuators) {
+  appState.actuators = mergedActuators;
+    renderActuators({
+      appState,
+      actuatorElements
+    });
   }
 
   if (snapshot.health && typeof snapshot.health === "object") {
-    updateSystemBadge(snapshot.health);
-  }
-
-  updateOverview();
-}
-
-/* =========================
-   STREAM
-========================= */
-
-function stopFallbackPolling() {
-  if (streamState.fallbackTimer) {
-    clearInterval(streamState.fallbackTimer);
-    streamState.fallbackTimer = null;
-  }
-}
-
-function startFallbackPolling() {
-  if (streamState.fallbackTimer) return;
-
-  streamState.fallbackTimer = setInterval(async () => {
-    await loadHealth();
-    await loadLatestState();
-    await loadActuators();
-  }, STREAM_CONFIG.fallbackPollingMs);
-}
-
-function closeDashboardStream() {
-  if (streamState.source) {
-    streamState.source.close();
-    streamState.source = null;
-  }
-
-  streamState.connected = false;
-}
-
-function startDashboardStream() {
-  if (typeof EventSource === "undefined") {
-    startFallbackPolling();
-    return;
-  }
-
-  closeDashboardStream();
-
-  const source = new EventSource(API_CONFIG.dashboardStream);
-  streamState.source = source;
-
-  source.onopen = () => {
-    const firstConnect = !streamState.connected;
-    streamState.connected = true;
-    stopFallbackPolling();
-
-    if (firstConnect) {
-      logEvent("SSE connesso: aggiornamenti real-time attivi", "success");
-    }
-  };
-
-  source.onmessage = event => {
-    try {
-      const snapshot = JSON.parse(event.data);
-      applyDashboardSnapshot(snapshot);
-    } catch (error) {
-      console.error("Errore parsing evento SSE:", error);
-    }
-  };
-
-  source.onerror = () => {
-    if (streamState.connected) {
-      logEvent("SSE disconnesso: attivo fallback polling", "warning");
-      streamState.connected = false;
-    }
-
-    startFallbackPolling();
-  };
-}
-
-/* =========================
-   ACTUATOR ACTIONS
-========================= */
-
-async function sendActuatorCommand(actuatorId, state) {
-  try {
-    await apiFetch(`${API_CONFIG.actuators}/${actuatorId}`, {
-      method: "POST",
-      body: JSON.stringify({ state })
+    updateSystemBadge({
+      data: snapshot.health,
+      systemStatusBadge: dom.systemStatusBadge
     });
-
-    appState.actuators[actuatorId] = state;
-    renderActuators();
-    updateOverview();
-
-    showToast("Actuator", `${actuatorId} set on ${state}`, "success");
-    logEvent(`Actuator Command: ${actuatorId} -> ${state}`, "success");
-  } catch (error) {
-    console.error("Errore sendActuatorCommand:", error);
-    showToast("Errore", `Impossible to load ${actuatorId}`, "danger");
-    logEvent(`Error command actuator ${actuatorId}`, "danger");
-  }
-}
-
-async function resetActuatorsToDefault() {
-  try {
-    const response = await apiFetch(API_CONFIG.resetActuators, {
-      method: "POST"
-    });
-
-    const resetCount = Number(response?.reset_count || 0);
-
-    Object.keys(appState.actuators).forEach(actuatorId => {
-      appState.actuators[actuatorId] = "OFF";
-    });
-
-    renderActuators();
-    updateOverview();
-
-    showToast("Reset actuators", `${resetCount} attuatori impostati su OFF`, "warning");
-    logEvent(`Reset attuatori: ${resetCount} attuatori su OFF`, "warning");
-
-    await loadActuators();
-    return true;
-  } catch (error) {
-    console.error("Errore resetActuatorsToDefault:", error);
-    showToast("Errore", "Impossible to reset actuators to OFF", "danger");
-    logEvent("Errore reset attuatori", "danger");
-    return false;
-  }
-}
-
-/* =========================
-   RULE ACTIONS
-========================= */
-
-async function createRule(payload) {
-  try {
-    await apiFetch(API_CONFIG.rules, {
-      method: "POST",
-      body: JSON.stringify(payload)
-    });
-
-    showToast("New Rule", "New rule saved correctly", "success");
-    logEvent(`New rule created on ${payload.sensor_name}.${payload.metric_name}`, "success");
-
-    await loadRules();
-    return true;
-  } catch (error) {
-    console.error("Errore createRule:", error);
-    showToast("Errore", "Impossible to create rule", "danger");
-    logEvent("Error in creating rule", "danger");
-    return false;
-  }
-}
-
-async function updateRule(ruleId, payload) {
-  try {
-    await apiFetch(`${API_CONFIG.rules}/${ruleId}`, {
-      method: "PUT",
-      body: JSON.stringify(payload)
-    });
-
-    showToast("Rule updated", `Rule ${ruleId} updated correctly`, "success");
-    logEvent(`Rule ${ruleId} edited`, "warning");
-
-    await loadRules();
-    return true;
-  } catch (error) {
-    console.error("Errore updateRule:", error);
-    showToast("Errore", `Impossible to update rule ${ruleId}`, "danger");
-    logEvent(`Error updating rule ${ruleId}`, "danger");
-    return false;
-  }
-}
-
-async function toggleRule(ruleId, enabled) {
-  try {
-    await apiFetch(`${API_CONFIG.rules}/${ruleId}`, {
-      method: "PUT",
-      body: JSON.stringify({ enabled: !enabled })
-    });
-
-    showToast("Rule updated", `Rule ${ruleId} updated`, "success");
-    logEvent(`Rule ${ruleId} ${enabled ? "disabled" : "enabled"}`, "warning");
-
-    await loadRules();
-  } catch (error) {
-    console.error("Errore toggleRule:", error);
-    showToast("Errore", `Impossible to update rule ${ruleId}`, "danger");
-    logEvent(`Error update rule ${ruleId}`, "danger");
-  }
-}
-
-async function deleteRule(ruleId) {
-  try {
-    await apiFetch(`${API_CONFIG.rules}/${ruleId}`, {
-      method: "DELETE"
-    });
-
-    showToast("Rule deleted", `Rule ${ruleId} deleted`, "warning");
-    logEvent(`Rule ${ruleId} deleted`, "warning");
-
-    await loadRules();
-  } catch (error) {
-    console.error("Error deleteRule:", error);
-    showToast("Error", `Impossible to delete rule ${ruleId}`, "danger");
-    logEvent(`Error deleting rule ${ruleId}`, "danger");
-  }
-}
-
-async function resetRulesToDefault() {
-  try {
-    const response = await apiFetch(API_CONFIG.resetRules, {
-      method: "POST"
-    });
-
-    const resetCount = Number(response?.reset_count || 0);
-
-    showToast("Rules reset", `Ripristinate ${resetCount} regole di default`, "warning");
-    logEvent(`Regole ripristinate ai default (${resetCount})`, "warning");
-
-    await loadRules();
-    return true;
-  } catch (error) {
-    console.error("Errore resetRulesToDefault:", error);
-    showToast("Errore", "Impossible to reset default rules", "danger");
-    logEvent("Error resetting rules", "danger");
-    return false;
-  }
-}
-
-/* =========================
-   FORM HANDLING
-========================= */
-
-function getRuleFormPayload() {
-  return {
-    sensor_name: dom.sensorNameInput.value.trim(),
-    metric_name: dom.metricNameInput.value.trim(),
-    operator: dom.ruleOperatorInput.value,
-    threshold: parseFloat(dom.ruleThresholdInput.value),
-    actuator_name: dom.actuatorNameInput.value,
-    action_value: dom.actionValueInput.value,
-    enabled: dom.ruleEnabledInput.checked
-  };
-}
-
-function setRuleFormModeEditing(rule) {
-  appState.editingRuleId = rule.id;
-
-  dom.sensorNameInput.value = safeText(rule.sensor_name, "");
-  dom.metricNameInput.value = safeText(rule.metric_name, "");
-  dom.ruleOperatorInput.value = rule.operator === "==" ? "=" : safeText(rule.operator, ">");
-  dom.ruleThresholdInput.value = safeText(rule.threshold, "");
-  dom.actuatorNameInput.value = safeText(rule.actuator_name, "cooling_fan");
-  dom.actionValueInput.value = safeText(rule.action_value, "OFF");
-  dom.ruleEnabledInput.checked = isRuleEnabled(rule);
-
-  ruleModalElements.title.textContent = `Edit Automation Rule #${rule.id}`;
-  ruleModalElements.submitButton.textContent = "Update Rule";
-}
-
-function openEditRuleModal(ruleId) {
-  const rule = appState.rules.find(item => String(item.id) === String(ruleId));
-  if (!rule) {
-    showToast("Errore", `Rule ${ruleId} not found`, "danger");
-    return;
   }
 
-  setRuleFormModeEditing(rule);
-  const modal = bootstrap.Modal.getOrCreateInstance(ruleModalElements.modal);
-  modal.show();
-}
-
-function setRuleFormModeCreate() {
-  appState.editingRuleId = null;
-  ruleModalElements.title.textContent = "Create Automation Rule";
-  ruleModalElements.submitButton.textContent = "Save Rule";
-}
-
-function resetRuleForm() {
-  dom.ruleForm.reset();
-  dom.ruleEnabledInput.checked = true;
-  setRuleFormModeCreate();
-}
-
-async function handleRuleSubmit(event) {
-  event.preventDefault();
-
-  const payload = getRuleFormPayload();
-
-  if (!payload.sensor_name || !payload.metric_name || Number.isNaN(payload.threshold)) {
-    showToast("Form not valid", "Fill all mandatory entries", "warning");
-    return;
-  }
-
-  const submitOk = appState.editingRuleId === null
-    ? await createRule(payload)
-    : await updateRule(appState.editingRuleId, payload);
-
-  if (!submitOk) {
-    return;
-  }
-
-  const modalInstance = bootstrap.Modal.getInstance(ruleModalElements.modal);
-  if (modalInstance) {
-    modalInstance.hide();
-  }
-
-  resetRuleForm();
+  refreshOverviewUI();
 }
 
 /* =========================
@@ -1422,7 +468,13 @@ function bindStaticEvents() {
         confirmButtonClass: "btn btn-warning text-dark fw-semibold"
       });
       if (!confirmed) return;
-      await resetRulesToDefault();
+      await resetRulesToDefault({
+        apiFetch,
+        API_CONFIG,
+        showToast,
+        logEvent,
+        loadRules
+      });
     });
   }
 
@@ -1435,61 +487,79 @@ function bindStaticEvents() {
         confirmButtonClass: "btn btn-warning text-dark fw-semibold"
       });
       if (!confirmed) return;
-      await resetActuatorsToDefault();
+      await resetActuatorsToDefault({
+        appState,
+        actuatorElements,
+        apiFetch,
+        API_CONFIG,
+        showToast,
+        logEvent,
+        loadActuators,
+        updateOverview: refreshOverviewUI
+      });
     });
   }
 
-  dom.ruleForm.addEventListener("submit", handleRuleSubmit);
+  dom.ruleForm.addEventListener("submit", async event => {
+    await handleRuleSubmit({
+      event,
+      appState,
+      dom,
+      ruleModalElements,
+      createRule,
+      updateRule,
+      apiFetch,
+      API_CONFIG,
+      showToast,
+      logEvent,
+      loadRules
+    });
+  });
 
   ruleModalElements.modal.addEventListener("hidden.bs.modal", () => {
-    resetRuleForm();
+    resetRuleForm({
+      dom,
+      appState,
+      ruleModalElements
+    });
   });
 
   ruleModalElements.modal.addEventListener("show.bs.modal", event => {
     const opener = event.relatedTarget;
     if (opener && opener.hasAttribute("data-create-rule")) {
-      resetRuleForm();
-    }
-  });
-
- document.querySelectorAll(".actuator-toggle-btn").forEach(button => {
-  button.addEventListener("click", () => {
-    const actuatorId = button.dataset.actuator;
-    const currentState = (appState.actuators[actuatorId] || "OFF").toUpperCase();
-    const newState = currentState === "ON" ? "OFF" : "ON";
-
-      sendActuatorCommand(actuatorId, newState);
-    });
-  });
-
-  document.addEventListener("click", async event => {
-    const editBtn = event.target.closest(".edit-rule-btn");
-    if (editBtn) {
-      openEditRuleModal(editBtn.dataset.id);
-      return;
-    }
-
-    const toggleBtn = event.target.closest(".toggle-rule-btn");
-    if (toggleBtn) {
-      const ruleId = toggleBtn.dataset.id;
-      const enabled = toggleBtn.dataset.enabled === "true";
-      await toggleRule(ruleId, enabled);
-      return;
-    }
-
-    const deleteBtn = event.target.closest(".delete-rule-btn");
-    if (deleteBtn) {
-      const ruleId = deleteBtn.dataset.id;
-      const confirmed = await askForConfirmation({
-        title: "Delete rule",
-        message: `Deleting rule ${ruleId}?`,
-        confirmLabel: "Delete",
-        confirmButtonClass: "btn btn-danger fw-semibold"
+      resetRuleForm({
+        dom,
+        appState,
+        ruleModalElements
       });
-      if (confirmed) {
-        await deleteRule(ruleId);
-      }
     }
+  });
+
+  bindActuatorActions({
+    appState,
+    apiFetch,
+    API_CONFIG,
+    showToast,
+    logEvent,
+    updateOverview: refreshOverviewUI,
+    actuatorElements
+  });
+
+    bindRuleActions({
+    appState,
+    ruleModalElements,
+    dom,
+    safeText,
+    isRuleEnabled,
+    showToast,
+    openEditRuleModal,
+    toggleRule,
+    deleteRule,
+    askForConfirmation,
+    apiFetch,
+    API_CONFIG,
+    logEvent,
+    loadRules
   });
 }
 
@@ -1505,8 +575,11 @@ async function refreshDashboard() {
     loadActuators()
   ]);
 
-  renderActuators();
-  updateOverview();
+  renderActuators({
+    appState,
+    actuatorElements
+  });
+  refreshOverviewUI();
 }
 
 /* =========================
@@ -1521,7 +594,15 @@ async function init() {
   logEvent("Initialized frontend", "info");
 
   await refreshDashboard();
-  startDashboardStream();
+  startDashboardStream({
+  streamState,
+  dashboardStreamUrl: API_CONFIG.dashboardStream,
+  applyDashboardSnapshot,
+  logEvent,
+  loadHealth,
+  loadLatestState,
+  loadActuators
+});
 }
 
 document.addEventListener("DOMContentLoaded", init);
