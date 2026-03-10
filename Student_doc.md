@@ -11,7 +11,7 @@ Mars Habitat Control is an IoT platform for monitoring and automating environmen
 5) As the User I want to enable/disable an existing rule
 6) As the User I want to reset the rules
 7) As the User I want to save all rules persistently
-8) As the User I want to see which rules have been broken
+8) As the User I want to see which sensors violate the rules.
 9) As the User I want to see the current active actuators
 10) As the User I want to see the current active sensors
 11) As the User I want to manually turn on/off a specific actuator
@@ -117,7 +117,7 @@ The service is organized into multiple modules:
 Acts as the messaging backbone of the platform. It receives normalized sensors and telemetry from the ingestion service and distributes it to backend consumers.
 
 ### USER STORIES:
-8) As the User I want to see which rules have been broken
+8) As a User, I want to see which sensors violate the rules.
 9) As the User I want to see the current active actuators
 10) As the User I want to see the current active sensors
 13) As the User I want to visualize charts regarding current data from sensors
@@ -196,7 +196,7 @@ Provides the REST API and server-side event stream used by the frontend dashboar
 5) As the User I want to enable/disable an existing rule
 6) As the User I want to reset the rules
 7) As the User I want to save all rules persistently
-8) As the User I want to see which rules have been broken
+8) As a User, I want to see which sensors violate the rules.
 9) As the User I want to see the current active actuators
 10) As the User I want to see the current active sensors
 11) As the User I want to manually turn on/off a specific actuator
@@ -305,7 +305,7 @@ Provides the web dashboard used by the user to monitor the habitat, manage rules
 4) As the User I want to modify an existing rule
 5) As the User I want to enable/disable an existing rule
 6) As the User I want to reset the rules
-8) As the User I want to see which rules have been broken
+8) As a User, I want to see which sensors violate the rules.
 9) As the User I want to see the current active actuators
 10) As the User I want to see the current active sensors
 11) As the User I want to manually turn on/off a specific actuator

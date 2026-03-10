@@ -12,7 +12,7 @@ Mars Habitat Control is an IoT platform that enables real-time monitoring and au
 5.  **Toggle Rule**: As a User, I want to enable/disable an existing rule.
 6.  **Reset Rules**: As a User, I want to reset the rules to defaults.
 7.  **Persistence**: As a User, I want to save all rules persistently.
-8.  **Violations**: As a User, I want to see which rules have been broken.
+8.  **Violations**: As a User, I want to see which sensors violate the rules.
 9.  **Actuator Status**: As a User, I want to see the current active actuators.
 10. **Sensor Status**: As a User, I want to see the current active sensors.
 11. **Manual Control**: As a User, I want to manually turn on/off a specific actuator.
