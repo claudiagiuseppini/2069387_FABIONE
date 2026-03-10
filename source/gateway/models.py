@@ -1,6 +1,7 @@
 from pydantic import BaseModel
 from typing import Optional
 
+# pydantic models
 class RuleCreate(BaseModel):
     sensor_name: str
     metric_name: str

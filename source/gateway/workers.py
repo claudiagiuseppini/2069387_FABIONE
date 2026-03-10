@@ -9,6 +9,7 @@ from state import (
 )
 
 def add_event(message: str, event_type: str = "info"):
+    '''add an event to the log to be displayed on the dashboard'''
     with event_lock:
         event_log.insert(0, {
             "message": message,
@@ -17,8 +18,10 @@ def add_event(message: str, event_type: str = "info"):
         })
         del event_log[50:]
 
+# required class for the stomp messages
 class BackendStompListener(stomp.ConnectionListener):
     def on_message(self, frame):
+        # activated on the message arrival, decodes the contents and updates the latest state with them
         try:
             data = json.loads(frame.body)
             sensor_id = data.get("sensor_id", "unknown")
@@ -39,14 +42,16 @@ class BackendStompListener(stomp.ConnectionListener):
                     }
             add_event(f"Update: {sensor_id} ({len(metrics_list)} metriche)", "info")
         except Exception as e:
-            print(f"⚠️ Errore parsing broker: {e}", flush=True)
+            print(f"❌ Error on parsing broker: {e}", flush=True)
 
-    def on_error(self, frame): print(f"❌ Errore STOMP: {frame.body}", flush=True)
-    def on_disconnected(self): print("🔄 STOMP disconnesso", flush=True)
+    def on_error(self, frame): print(f"❌ Error on STOMP: {frame.body}", flush=True)
+    def on_disconnected(self): print("❌ STOMP disconnescted", flush=True)
 
+#defines stomp connection
 stomp_conn = stomp.Connection([(BROKER_CONF["host"], BROKER_CONF["port"])])
 
 def connect_stomp():
+    '''open stomp connection and subscribe to the topic'''
     try:
         if not stomp_conn.is_connected():
             stomp_conn.set_listener("", BackendStompListener())
@@ -55,19 +60,24 @@ def connect_stomp():
     except Exception: pass
 
 def stomp_worker():
+    '''reopen the connection with the broker if it fails'''
     while True:
         if not stomp_conn.is_connected(): connect_stomp()
         time.sleep(5)
 
 def poll_actuators():
+    '''gets the actuators state'''
     while True:
         try:
+            # interrogates the simulator endpoint to get actuators' states
             response = requests.get(f"{SIMULATOR_URL}/api/actuators", timeout=5)
+
+            # logic if the interrogation is succesful
             if response.status_code == 200:
                 payload = response.json()
                 discovered = {}
                 
-                # --- LOGICA DI PARSING ORIGINALE (RIPRISTINATA) ---
+                # actuators parsing logic to get the state (ON/OFF) for each activator
                 if isinstance(payload, dict):
                     if "actuators" in payload and isinstance(payload["actuators"], list):
                         for item in payload["actuators"]:
@@ -83,6 +93,7 @@ def poll_actuators():
                                 st = v.get("state") or v.get("last_state") or "OFF"
                                 discovered[k] = st
                 
+                # actually update activator state for the frontend
                 with actuator_lock:
                     if discovered:
                         actuators_state.clear()
