@@ -212,8 +212,9 @@ As the User I want to see the number of sensors, live telemetries, active rules 
 At the top of the dashboard, the user should always see four live counters: sensors, live telemetry, active rules, and actuators ON.
 
 **Specific mockup (LoFi)**  
-- File: `booklet/mockups/US-17_dashboard_kpis_lofi.png`
-- Content: Four KPI cards with label and numeric value.
+<p align="center">
+	<img src="lo-fi%20mockup/rule17.png" alt="US-17 Dashboard KPI Counters LoFi" width="520" />
+</p>
 
 ## US-18 - Show Warning Sensors
 **User story**  
@@ -223,8 +224,9 @@ As the User I want to see which sensors are in warning status.
 Warning status must be visible with a dedicated badge and clearly distinct from ok/error to support preventive monitoring.
 
 **Specific mockup (LoFi)**  
-- File: `booklet/mockups/US-18_warning_status_lofi.png`
-- Content: Warning status badge on one or more metrics.
+<p align="center">
+	<img src="lo-fi%20mockup/rule18.png" alt="US-18 Show Warning Sensors LoFi" width="520" />
+</p>
 
 ## US-19 - Quick Access to Alerts Section
 **User story**  
@@ -234,21 +236,21 @@ As the User I want to directly access the alert section by clicking on a single 
 A dedicated button should take the user directly to the alerts section with automatic scrolling and visible focus.
 
 **Specific mockup (LoFi)**  
-- File: `booklet/mockups/US-19_jump_to_alerts_lofi.png`
-- Content: Jump to Alerts button and highlighted destination section.
+<p align="center">
+	<img src="lo-fi%20mockup/rule19.1.png" alt="US-19.1 Quick Access to Alerts Section LoFi" width="520" />
+</p>
+<p align="center">
+	<img src="lo-fi%20mockup/rule19.2.png" alt="US-19.2 Alerts Section Highlight LoFi" width="520" />
+</p>
 
 ## US-20 - Notification on Rule Violation
 **User story**  
-As the User I want to be notified when a rule has been broken.
+As a User, I want to be notified when a rule has been broken, a violation has been resolved and when rules have been modified.
 
 **Description**  
-When a new violation occurs, the user receives a clear notification (event log or toast) with essential information.
+When a rule has been broken, a violation has been resolved and when rules have been modified, the user receives a clear notification (event log) with essential information.
 
 **Specific mockup (LoFi)**  
-- File: `booklet/mockups/US-20_rule_broken_notification_lofi.png`
-- Content: Notification/alert stream example with violation message.
-
----
-
-## Operational Note
-If you want, as next step I can create all 20 placeholder image files in `booklet/mockups/` (already with the correct names), so you only need to overwrite them with Figma/Balsamiq exports.
+<p align="center">
+	<img src="lo-fi%20mockup/rule20.png" alt="US-20 Notification on Rule Violation LoFi" width="520" />
+</p>

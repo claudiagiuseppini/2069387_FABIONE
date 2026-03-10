@@ -23,7 +23,7 @@ Mars Habitat Control is an IoT platform for monitoring and automating environmen
 17) As the User I want to see the number of sensors, live telemetries, active rules and actuators currently on.
 18) As the User I want to see which sensors are in warning status
 19) As the User I want to directly access the alert section by clicking on a single button
-20) As the User I want to be notified when a rule has been broken
+20) As a User, I want to be notified when a rule has been broken, a violation has been resolved and when rules have been modified.
 
 # CONTAINERS:
 
@@ -124,7 +124,7 @@ Acts as the messaging backbone of the platform. It receives normalized sensors a
 15) As the User I want to see how much time has passed since the latest update
 17) As the User I want to see the number of sensors, live telemetries, active rules and actuators currently on.
 18) As the User I want to see which sensors are in warning status
-20) As the User I want to be notified when a rule has been broken
+20) As a User, I want to be notified when a rule has been broken, a violation has been resolved and when rules have been modified.
 
 ### PORTS:
 61616:61616
@@ -203,7 +203,7 @@ Provides the REST API and server-side event stream used by the frontend dashboar
 12) As the User I want to reset all actuators to off
 15) As the User I want to see how much time has passed since the latest update
 17) As the User I want to see the number of sensors, live telemetries, active rules and actuators currently on.
-20) As the User I want to be notified when a rule has been broken
+20) As a User, I want to be notified when a rule has been broken, a violation has been resolved and when rules have been modified.
 
 ### PORTS:
 8000:8000
@@ -317,7 +317,7 @@ Provides the web dashboard used by the user to monitor the habitat, manage rules
 17) As the User I want to see the number of sensors, live telemetries, active rules and actuators currently on.
 18) As the User I want to see which sensors are in warning status
 19) As the User I want to directly access the alert section by clicking on a single button
-20) As the User I want to be notified when a rule has been broken
+20) As a User, I want to be notified when a rule has been broken, a violation has been resolved and when rules have been modified.
 
 ### PORTS:
 3000:80

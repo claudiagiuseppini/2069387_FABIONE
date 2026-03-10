@@ -24,7 +24,7 @@ Mars Habitat Control is an IoT platform that enables real-time monitoring and au
 17. **System Overview**: As a User, I want to see the number of sensors, live telemetries, active rules, and actuators currently on.
 18. **Warnings**: As a User, I want to see which sensors are in warning status.
 19. **Quick Access**: As a User, I want to directly access the alert section by clicking on a single button.
-20. **Notifications**: As a User, I want to be notified when a rule has been broken.
+20. **Notifications**: As a User, I want to be notified when a rule has been broken, a violation has been resolved and when rules have been modified.
 
 
 ## 3. Data Normalization
