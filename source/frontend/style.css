@@ -701,6 +701,15 @@ body {
   }
 }
 
+#chart-area {
+  height: 350px;
+}
+
+#live-chart {
+  width: 100% !important;
+  height: 100% !important;
+}
+
 @media (max-width: 768px) {
   main.container-fluid {
     padding-left: 1rem !important;

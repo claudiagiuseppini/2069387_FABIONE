@@ -35,7 +35,7 @@ The system ingests heterogeneous JSON payloads from 8 different models (4 sensor
 ### 3.1 Normalized Schema
 ```json
 {
-  "sensor_id": "string",       // Unique ID or derived from topic
+  "sensor_id": "string",       // Unique ID
   "sensor_type": "string",     // "sensor" or "telemetric"
   "timestamp": "ISO8601/UTC",  // Captured/Event time
   "source": "string | null",   // Origin location or subsystem

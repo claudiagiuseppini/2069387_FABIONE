@@ -1,13 +1,12 @@
--- 1. CREAZIONE DATABASE E UTENTE
+-- USER AND DATABASE CREATION
 CREATE DATABASE IF NOT EXISTS mars_iot;
 USE mars_iot;
 
--- Creiamo l'utente se non esiste e assegniamo i permessi
 CREATE USER IF NOT EXISTS 'user_mars'@'%' IDENTIFIED BY 'password_mars';
 GRANT SELECT, INSERT, UPDATE, DELETE ON mars_iot.* TO 'user_mars'@'%';
 FLUSH PRIVILEGES;
 
--- 2. CREAZIONE TABELLA
+-- TABLE CREATION
 CREATE TABLE IF NOT EXISTS automation_rules (
     id INT AUTO_INCREMENT PRIMARY KEY,
     sensor_name VARCHAR(255) NOT NULL,
@@ -19,7 +18,7 @@ CREATE TABLE IF NOT EXISTS automation_rules (
     enabled BOOLEAN DEFAULT TRUE
 );
 
--- 3. INSERIMENTO REGOLE
+-- RULES INSERTION
 INSERT INTO automation_rules 
     (sensor_name, metric_name, operator, threshold, actuator_name, action_value) 
 VALUES 
