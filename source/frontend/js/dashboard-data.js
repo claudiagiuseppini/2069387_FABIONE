@@ -6,6 +6,14 @@ export function extractLatestSensors(data) {
   return [];
 }
 
+export function extractRules(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.rules)) return data.rules;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
 export function mergeActuatorStates(currentActuators, data) {
   if (!data || typeof data !== "object" || Array.isArray(data)) {
     return currentActuators;

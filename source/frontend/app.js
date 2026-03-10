@@ -82,6 +82,7 @@ import {
 
 import {
   extractLatestSensors,
+  extractRules,
   mergeActuatorStates
 } from "./js/dashboard-data.js";
 
@@ -308,16 +309,7 @@ async function loadRules() {
   try {
     const data = await apiFetch(API_CONFIG.rules);
 
-    if (Array.isArray(data)) {
-      appState.rules = data;
-    } else if (Array.isArray(data.rules)) {
-      appState.rules = data.rules;
-    } else if (Array.isArray(data.items)) {
-      appState.rules = data.items;
-    } else {
-      appState.rules = [];
-    }
-
+    appState.rules = extractRules(data);
     renderRulesTable({
       rules: appState.rules,
       rulesTableBody: dom.rulesTableBody,
