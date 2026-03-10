@@ -505,10 +505,52 @@ function sanitizeGroupKey(value) {
   return String(value).replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
+function inferUnitFromMetricName(metricName) {
+  if (!metricName) return "";
+
+  const normalizedMetric = String(metricName).trim().toLowerCase();
+  if (normalizedMetric.endsWith("cycles_per_hour")) return "cycles/h";
+
+  const tokens = normalizedMetric
+    .split("_")
+    .filter(Boolean);
+
+  if (tokens.length < 2) return "";
+
+  const last = tokens[tokens.length - 1];
+  const lastTwo = tokens.slice(-2).join("_");
+
+  const suffixMap = {
+    pct: "%",
+    kw: "kW",
+    kwh: "kWh",
+    v: "V",
+    a: "A",
+    c: "C",
+    f: "F",
+    pa: "Pa",
+    bar: "bar",
+    ppm: "ppm",
+    ppb: "ppb",
+    ph: "pH",
+    liters: "L",
+    l: "L",
+    m3: "m3",
+    l_min: "L/min",
+    ug_m3: "ug/m3",
+    mg_m3: "mg/m3",
+    g_m3: "g/m3"
+  };
+
+  return suffixMap[lastTwo] || suffixMap[last] || "";
+}
+
 function buildMetricRow(sensor) {
   const value = safeText(sensor.value);
-  const unit = safeText(sensor.unit, "");
   const metricName = safeText(sensor.metric_name);
+  const explicitUnit = safeText(sensor.unit, "").trim();
+  const inferredUnit = inferUnitFromMetricName(metricName);
+  const unit = explicitUnit || inferredUnit;
   const status = safeText(sensor.status, "ok");
   const source = safeText(sensor.source, sensor.sensor_id);
   const timestamp = formatRelativeTime(sensor.timestamp);
@@ -517,11 +559,11 @@ function buildMetricRow(sensor) {
   return `
     <div class="metric-row ${isAlert ? "metric-row-alert" : ""}">
       <div class="metric-row-main">
-        <div class="metric-row-name">
-          ${metricName}
+        <div class="metric-row-name">${metricName}</div>
+        <div class="metric-row-value">
+          ${value}
           ${unit ? `<span class="metric-row-unit">${unit}</span>` : ""}
         </div>
-        <div class="metric-row-value">${value}</div>
       </div>
 
       <div class="metric-row-meta">
@@ -682,16 +724,28 @@ function addSensorToChartHistory(sensor) {
 ========================= */
 
 function updateOverview() {
-  const uniqueSensorIds = new Set(appState.latestSensors.map(s => s.sensor_id));
-  dom.activeSensorsCount.textContent = uniqueSensorIds.size;
+  const sensorIds = new Set();
+  const telemetryIds = new Set();
+
+  appState.latestSensors.forEach(item => {
+    const sensorId = String(item.sensor_id || "").trim();
+    if (!sensorId) return;
+
+    const isTelemetry = String(item.sensor_type || "").toLowerCase().includes("tele");
+
+    if (isTelemetry) {
+      telemetryIds.add(sensorId);
+    } else {
+      sensorIds.add(sensorId);
+    }
+  });
+
+  dom.activeSensorsCount.textContent = sensorIds.size;
 
   const groupedSensors = groupSensorsByCategories(appState.latestSensors);
   dom.sensorCardsBadge.textContent = `${groupedSensors.length} categories · ${appState.latestSensors.length} metrics`;
 
-  const telemetryCount = appState.latestSensors.filter(
-    item => String(item.sensor_type || "").toLowerCase().includes("tele")
-  ).length;
-  dom.liveTelemetryCount.textContent = telemetryCount;
+  dom.liveTelemetryCount.textContent = telemetryIds.size;
 
   const enabledRules = appState.rules.filter(isRuleEnabled).length;
   dom.activeRulesCount.textContent = enabledRules;
